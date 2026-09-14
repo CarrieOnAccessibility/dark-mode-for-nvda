@@ -210,6 +210,114 @@ class DevHook:
 		wx.CallAfter(popup)
 		print("popping menu")
 
+	def v_menupop(self):
+		"""Pop the NVDA menu at the screen centre (as NVDA+N does) and close it after 900 ms.
+		dev/flashcap.py films the screen from outside NVDA while this runs."""
+		import gui
+
+		sw = _user32.GetSystemMetrics(0)
+		sh = _user32.GetSystemMetrics(1)
+		_user32.SetCursorPos(sw // 2, sh // 2)
+
+		def popup():
+			self._later = wx.CallLater(900, _user32.EndMenu)
+			gui.mainFrame.sysTrayIcon.onActivate(None)
+
+		wx.CallAfter(popup)
+		print("popping menu")
+
+	def v_menuhook(self, state="on"):
+		"""Turn the popup-menu dark-erase hook off/on (A/B test for dev/flashcap.py)."""
+		from . import native
+
+		if state.lower() == "off":
+			native.removeMenuHook()
+		else:
+			native.installMenuHook()
+		print("menu hook", "installed" if native._menuHook else "removed")
+
+	def v_menutrace(self, name="menutrace"):
+		"""Pop the NVDA menu with a thread-local CBT hook that subclasses the popup menu
+		window (#32768) and logs every message it gets, with timestamps, to dev/shots/<name>.txt."""
+		import threading
+		import time
+		from ctypes import wintypes
+
+		import gui
+
+		comctl32 = ctypes.windll.comctl32
+		SUBCLASSPROC = ctypes.WINFUNCTYPE(
+			ctypes.c_longlong, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM, ctypes.c_size_t, ctypes.c_size_t
+		)
+		CBTPROC = ctypes.WINFUNCTYPE(ctypes.c_longlong, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
+		_DefSubclassProc = comctl32.DefSubclassProc
+		_DefSubclassProc.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+		_DefSubclassProc.restype = ctypes.c_longlong
+		_SetWindowSubclass = comctl32.SetWindowSubclass
+		_SetWindowSubclass.argtypes = (wintypes.HWND, SUBCLASSPROC, ctypes.c_size_t, ctypes.c_size_t)
+		_CallNextHookEx = _user32.CallNextHookEx
+		_CallNextHookEx.argtypes = (wintypes.HHOOK, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
+		_CallNextHookEx.restype = ctypes.c_longlong
+		_SetWindowsHookExW = _user32.SetWindowsHookExW
+		_SetWindowsHookExW.argtypes = (ctypes.c_int, CBTPROC, wintypes.HINSTANCE, wintypes.DWORD)
+		_SetWindowsHookExW.restype = wintypes.HHOOK
+		WH_CBT = 5
+		HCBT_CREATEWND = 3
+		t0 = time.perf_counter()
+		lines = []
+		state = {"hook": None}
+
+		def clsName(h):
+			buf = ctypes.create_unicode_buffer(64)
+			_user32.GetClassNameW(h, buf, 64)
+			return buf.value
+
+		def sub(hwnd, msg, wParam, lParam, uId, ref):
+			try:
+				lines.append("%7.3f hwnd=%#x msg=%#06x w=%#x l=%#x" % (time.perf_counter() - t0, hwnd, msg, wParam & 0xFFFFFFFF, lParam & 0xFFFFFFFF))
+				if msg == 0x000F:  # WM_PAINT: how long does the default paint take?
+					t1 = time.perf_counter()
+					res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+					lines.append("%7.3f   WM_PAINT default took %.1f ms" % (time.perf_counter() - t0, (time.perf_counter() - t1) * 1000))
+					return res
+			except Exception:
+				log.exception("menutrace sub")
+			return _DefSubclassProc(hwnd, msg, wParam, lParam)
+
+		subProc = SUBCLASSPROC(sub)
+		self._keep = [subProc]
+
+		def cbt(code, wParam, lParam):
+			try:
+				if code == HCBT_CREATEWND and clsName(wParam) == "#32768":
+					lines.append("%7.3f CBT create popup hwnd=%#x" % (time.perf_counter() - t0, wParam))
+					_SetWindowSubclass(wParam, subProc, 99, 0)
+			except Exception:
+				log.exception("menutrace cbt")
+			return _CallNextHookEx(state["hook"], code, wParam, lParam)
+
+		cbtProc = CBTPROC(cbt)
+		self._keep.append(cbtProc)
+
+		def finish():
+			_user32.EndMenu()
+			lines.append("%7.3f EndMenu called" % (time.perf_counter() - t0))
+
+		def popup():
+			state["hook"] = _SetWindowsHookExW(WH_CBT, cbtProc, None, ctypes.windll.kernel32.GetCurrentThreadId())
+			lines.append("%7.3f hook=%r" % (time.perf_counter() - t0, state["hook"]))
+			self._later = wx.CallLater(700, finish)
+			lines.append("%7.3f popping" % (time.perf_counter() - t0))
+			gui.mainFrame.sysTrayIcon.onActivate(None)
+			lines.append("%7.3f popup returned" % (time.perf_counter() - t0))
+			_user32.UnhookWindowsHookEx(state["hook"])
+			os.makedirs(SHOTS_DIR, exist_ok=True)
+			with open(_shotPath(name + ".txt").replace(".png", ""), "w", encoding="utf-8") as f:
+				f.write("\n".join(lines))
+
+		wx.CallAfter(popup)
+		print("menu trace started")
+
 	def v_dropdown(self, titlePart, index="0", name="dropdown"):
 		"""Open the Nth combo box in the dialog, screenshot the dialog + list, close it."""
 		w = _findTLW(titlePart)

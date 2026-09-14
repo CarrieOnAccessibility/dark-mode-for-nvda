@@ -12,6 +12,8 @@ This folder is NOT part of the website. It is excluded from SFTP uploads (see `.
 - `build.py` - `python build.py` writes `dist/nvdaDarkMode-<version>.nvda-addon`. `python build.py --install` also copies the add-on into `%APPDATA%\nvda\addons\` for testing (restart NVDA after).
 - `dev/testbench.py` - opens a fake "NVDA Settings" dialog using NVDA's own bundled wxPython (no NVDA needed), applies the engine, saves screenshots to `dev/shots/`. Fastest way to check a change visually. `--light` gives the untouched baseline.
 - `dev/shoot_nvda.py` - screenshots the running NVDA's windows. Sends NVDA keyboard shortcuts by injecting keystrokes, which only lands in NVDA's dialogs if they have focus; use with care.
+- `dev/flashcap.py` - films the screen centre at ~60 fps from outside NVDA and reports how bright each frame was, to catch flashes when the NVDA menu opens. `python dev/flashcap.py NAME` pops the menu through the dev hook; `--wait 60` films while you open it yourself with NVDA+N. Filming from inside NVDA slows NVDA down and distorts what you're measuring, which is why this is a separate process.
+- `dev/exp_grip.py` - tiny resizable dialog for checking the size grip painter (the bench dialog is not resizable).
 - `dist/` - built packages.
 
 ## Versioning

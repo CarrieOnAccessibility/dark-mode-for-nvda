@@ -312,6 +312,8 @@ ID_OWNERDRAW = 3  # on the PARENT of owner-drawn check list boxes (WM_DRAWITEM g
 ID_TABS = 4
 ID_RICH = 5  # rich edit controls: keep text colour applied after the text is replaced
 ID_HEADER = 6
+ID_GRIP = 7  # the size grip wx puts in the corner of resizable dialogs (a bare ScrollBar window)
+ID_MENUPOPUP = 8  # popup menu windows (#32768): dark erase so they never flash light
 
 
 def colorref(rgb):
@@ -324,6 +326,8 @@ BORDER = (0xC8, 0xC8, 0xC8)  # light grey frame around fields, lists, buttons
 FOCUS = (0x60, 0xCD, 0xFF)  # focus rings: the Windows 11 dark-mode accent blue, same as the check box glyphs
 FRAME_INNER = (0x2B, 0x2B, 0x2B)  # covers the theme's inner white line (matches field background)
 PARENT_BG = (0x20, 0x20, 0x20)  # dialog background, shows behind rounded button corners
+GRIP_DOT = (0x62, 0x62, 0x62)  # size grip dots: visible if you look for them, nothing more
+MENU_BG = (0x2C, 0x2C, 0x2C)  # what Windows paints dark popup menus with (measured); used only for the erase
 BTN_FACE = (0x33, 0x33, 0x33)
 BTN_HOT = (0x50, 0x50, 0x50)  # hover: clearly lighter than the face
 BTN_PRESSED = (0x28, 0x28, 0x28)
@@ -537,6 +541,35 @@ def _paintCheckItem(dis):
 		_FrameRect(hdc, ctypes.byref(rc), ring)
 		_DeleteObject(ring)
 	return True
+
+
+def _paintGrip(hwnd):
+	"""Dialog size grip: dialog background with a small triangle of dim dots in the corner."""
+	ps = PAINTSTRUCT()
+	hdc = _BeginPaint(hwnd, ctypes.byref(ps))
+	if not hdc:
+		return
+	try:
+		rc = RECT()
+		_GetClientRect(hwnd, ctypes.byref(rc))
+		bg = _CreateSolidBrush(colorref(PARENT_BG))
+		_FillRect(hdc, ctypes.byref(rc), bg)
+		_DeleteObject(bg)
+		dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
+		dot = max(1, round(1.5 * dpi / 96))
+		step = dot * 2
+		margin = max(2, round(4 * dpi / 96))
+		dotBrush = _CreateSolidBrush(colorref(GRIP_DOT))
+		# rows of 1, 2, 3 dots, anchored to the bottom-right corner
+		for row in range(3):
+			for col in range(row + 1):
+				x = rc.right - margin - dot - (row - col) * step
+				y = rc.bottom - margin - dot - (2 - row) * step
+				r = RECT(x, y, x + dot, y + dot)
+				_FillRect(hdc, ctypes.byref(r), dotBrush)
+		_DeleteObject(dotBrush)
+	finally:
+		_EndPaint(hwnd, ctypes.byref(ps))
 
 
 def _tabText(hwnd, index):
@@ -800,6 +833,23 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 				_InvalidateRect(hwnd, None, False)
 				return res
+		elif idSubclass == ID_GRIP:
+			if msg == WM_PAINT:
+				_paintGrip(hwnd)
+				return 0
+			if msg == WM_ERASEBKGND:
+				return 1
+		elif idSubclass == ID_MENUPOPUP:
+			if msg == WM_ERASEBKGND:
+				# Windows erases a new popup menu with the light menu colour and paints the
+				# dark menu later. In NVDA "later" is tens of ms (it reads its own menu in
+				# between), long enough to see. Erase dark instead; the real paint follows.
+				rc = RECT()
+				_GetClientRect(hwnd, ctypes.byref(rc))
+				brush = _CreateSolidBrush(colorref(MENU_BG))
+				_FillRect(wParam, ctypes.byref(rc), brush)
+				_DeleteObject(brush)
+				return 1
 		elif idSubclass == ID_BUTTON:
 			if msg == WM_PAINT:
 				_paintButton(hwnd)
@@ -916,6 +966,37 @@ def applyTabs(hwnd, dark: bool):
 		_InvalidateRect(hwnd, None, True)
 
 
+SBS_SIZEBOX = 0x0008
+SBS_SIZEGRIP = 0x0010
+GW_CHILD = 5
+GW_HWNDNEXT = 2
+_GetWindow = _user32.GetWindow
+_GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
+_GetWindow.restype = wintypes.HWND
+
+
+def sizeGrips(hwndParent):
+	"""Size grip windows directly under a top-level window (wx creates one per resizable dialog)."""
+	out = []
+	buf = ctypes.create_unicode_buffer(64)
+	h = _GetWindow(hwndParent, GW_CHILD)
+	while h:
+		_user32.GetClassNameW(h, buf, 64)
+		if buf.value.lower() == "scrollbar" and _GetWindowLongW(h, GWL_STYLE) & (SBS_SIZEBOX | SBS_SIZEGRIP):
+			out.append(h)
+		h = _GetWindow(h, GW_HWNDNEXT)
+	return out
+
+
+def applyGrip(hwnd, dark: bool):
+	if dark:
+		_attach(hwnd, ID_GRIP)
+	else:
+		_detach(hwnd, ID_GRIP)
+	if _IsWindow(hwnd):
+		_InvalidateRect(hwnd, None, True)
+
+
 def registerCheckList(hwnd, hwndParent, win, dark: bool):
 	"""Owner-draw the rows of a wx.CheckListBox (its parent receives WM_DRAWITEM)."""
 	if dark:
@@ -927,7 +1008,58 @@ def registerCheckList(hwnd, hwndParent, win, dark: bool):
 		_InvalidateRect(hwnd, None, True)
 
 
+# --- Popup menu hook ---------------------------------------------------------
+# A thread-local CBT hook sees every window created on this thread before it is
+# shown; popup menu windows get the ID_MENUPOPUP subclass so their first erase is dark.
+WH_CBT = 5
+HCBT_CREATEWND = 3
+MENU_POPUP_CLASS = "#32768"
+_CBTPROC = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
+_SetWindowsHookExW = _user32.SetWindowsHookExW
+_SetWindowsHookExW.argtypes = (ctypes.c_int, _CBTPROC, wintypes.HINSTANCE, wintypes.DWORD)
+_SetWindowsHookExW.restype = wintypes.HHOOK
+_UnhookWindowsHookEx = _user32.UnhookWindowsHookEx
+_UnhookWindowsHookEx.argtypes = (wintypes.HHOOK,)
+_CallNextHookEx = _user32.CallNextHookEx
+_CallNextHookEx.argtypes = (wintypes.HHOOK, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
+_CallNextHookEx.restype = ctypes.c_ssize_t
+_menuHook = None
+
+
+def _cbt(code, wParam, lParam):
+	try:
+		if code == HCBT_CREATEWND:
+			buf = ctypes.create_unicode_buffer(64)
+			_user32.GetClassNameW(wParam, buf, 64)
+			if buf.value == MENU_POPUP_CLASS:
+				_attach(wParam, ID_MENUPOPUP)
+	except Exception:
+		log.exception("nvdaDarkMode: menu hook failed")
+	return _CallNextHookEx(_menuHook, code, wParam, lParam)
+
+
+_cbtProc = _CBTPROC(_cbt)  # must stay alive while the hook is installed
+
+
+def installMenuHook():
+	"""Start giving popup menus a dark first erase. Call from the thread that shows the menus."""
+	global _menuHook
+	if _menuHook:
+		return
+	_menuHook = _SetWindowsHookExW(WH_CBT, _cbtProc, None, ctypes.windll.kernel32.GetCurrentThreadId())
+	if not _menuHook:
+		log.warning("nvdaDarkMode: could not install the popup menu hook (error %d)" % ctypes.get_last_error())
+
+
+def removeMenuHook():
+	global _menuHook
+	if _menuHook:
+		_UnhookWindowsHookEx(_menuHook)
+		_menuHook = None
+
+
 def detachAll():
+	removeMenuHook()
 	_checkLists.clear()
 	_tabHot.clear()
 	for hwnd, ids in list(_subclassed.items()):

@@ -305,6 +305,8 @@ def _applyDark(win, hwnd):
 			_setWindowTheme(child, "DarkMode_Explorer")
 	if isinstance(win, wx.TopLevelWindow):
 		_setTitleBarDark(hwnd, True)
+		for grip in native.sizeGrips(hwnd):
+			native.applyGrip(grip, True)
 
 
 def _restoreLight(win, hwnd, state):
@@ -350,6 +352,8 @@ def _restoreLight(win, hwnd, state):
 			_setWindowTheme(child, None)
 	if isinstance(win, wx.TopLevelWindow):
 		_setTitleBarDark(hwnd, False)
+		for grip in native.sizeGrips(hwnd):
+			native.applyGrip(grip, False)
 
 
 def themeWindow(win: wx.Window, dark: bool = True, force: bool = False):
@@ -465,7 +469,9 @@ class DarkModeEngine:
 		log.info("nvdaDarkMode: %s dark mode" % ("enabling" if dark else "disabling"))
 		setProcessDark(dark)
 		themeAllWindows(dark)
-		if not dark:
+		if dark:
+			native.installMenuHook()
+		else:
 			native.detachAll()
 
 	def _onWindowCreate(self, event):
