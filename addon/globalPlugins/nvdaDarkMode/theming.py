@@ -25,6 +25,11 @@ import winreg
 import wx
 
 try:
+	from . import native
+except ImportError:  # imported as a plain module by the dev test bench
+	import native
+
+try:
 	from logHandler import log
 except ImportError:  # running outside NVDA (test bench)
 	import logging
@@ -68,7 +73,13 @@ _EnumChildWindows.argtypes = (wintypes.HWND, _EnumChildProc, wintypes.LPARAM)
 _EnumChildWindows.restype = wintypes.BOOL
 
 WM_THEMECHANGED = 0x031A
+LVM_SETBKCOLOR = 0x1000 + 1
 LVM_GETHEADER = 0x1000 + 31
+LVM_SETTEXTCOLOR = 0x1000 + 36
+LVM_SETTEXTBKCOLOR = 0x1000 + 38
+TVM_SETBKCOLOR = 0x1100 + 29
+TVM_SETTEXTCOLOR = 0x1100 + 30
+CLR_DEFAULT = 0xFF000000
 SPI_GETHIGHCONTRAST = 0x0042
 HCF_HIGHCONTRASTON = 0x0001
 
@@ -116,6 +127,10 @@ APPMODE_FORCE_LIGHT = 3
 
 # DWMWA_USE_IMMERSIVE_DARK_MODE: 20 from build 19041, 19 on the 18985-19040 insider range.
 DWMWA_USE_IMMERSIVE_DARK_MODE = 20 if WIN_BUILD >= 19041 else 19
+# Windows 11 lets an app pick its own window border colour.
+DWMWA_BORDER_COLOR = 34
+DWMWA_COLOR_DEFAULT = 0xFFFFFFFF
+WINDOW_BORDER = wx.Colour(0xC8, 0xC8, 0xC8)  # light grey ring around every NVDA dialog
 
 
 # --- System state -----------------------------------------------------------
@@ -139,6 +154,10 @@ def highContrastActive() -> bool:
 
 
 # --- Per-window theming -----------------------------------------------------
+def _colorref(c: wx.Colour) -> int:
+	return c.Red() | (c.Green() << 8) | (c.Blue() << 16)
+
+
 def _className(hwnd) -> str:
 	buf = ctypes.create_unicode_buffer(256)
 	_GetClassName(hwnd, buf, 256)
@@ -155,6 +174,9 @@ def _setTitleBarDark(hwnd, dark: bool):
 		return
 	value = wintypes.BOOL(1 if dark else 0)
 	_DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(value), ctypes.sizeof(value))
+	if WIN_BUILD >= 22000:
+		border = wintypes.DWORD(_colorref(WINDOW_BORDER) if dark else DWMWA_COLOR_DEFAULT)
+		_DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ctypes.byref(border), ctypes.sizeof(border))
 	if _AllowDarkModeForWindow:
 		_AllowDarkModeForWindow(hwnd, dark)
 
@@ -224,12 +246,53 @@ def _sysColour(which):
 	return wx.SystemSettings.GetColour(which)
 
 
+def _framedHwnds(win, hwnd):
+	"""Native windows whose edge we repaint: the control itself if it has a
+	frame, plus the edit box a wx.SpinCtrl keeps as a separate native child."""
+	out = []
+	if not isinstance(win, (wx.Choice, wx.ComboBox, wx.TopLevelWindow)):
+		# Native frame styles, or a wx-drawn border (wx paints wx.BORDER_THEME itself).
+		try:
+			wxBorder = win.GetBorder() != wx.BORDER_NONE
+		except Exception:
+			wxBorder = False
+		if native.hasFrame(hwnd) or wxBorder:
+			out.append(hwnd)
+	if isinstance(win, (wx.SpinCtrl, wx.SpinCtrlDouble)):
+		buddy = native.spinBuddy(hwnd)
+		if buddy:
+			out.append(buddy)
+	return out
+
+
 def _applyDark(win, hwnd):
+	# Theme first: changing the theme makes list views forget their text colour.
+	_setWindowTheme(hwnd, _nativeThemeFor(win, hwnd))
 	if not isinstance(win, _NO_COLOUR_TYPES):
 		field = isinstance(win, _FIELD_TYPES)
 		win.SetOwnBackgroundColour(FIELD_BG if field else BG)
 		win.SetOwnForegroundColour(FG)
-	_setWindowTheme(hwnd, _nativeThemeFor(win, hwnd))
+	# wx skips re-sending colours it believes are already set, so tell the
+	# native list/tree directly (these get reset by theme changes).
+	if isinstance(win, wx.ListCtrl):
+		_SendMessage(hwnd, LVM_SETBKCOLOR, 0, _colorref(FIELD_BG))
+		_SendMessage(hwnd, LVM_SETTEXTBKCOLOR, 0, _colorref(FIELD_BG))
+		_SendMessage(hwnd, LVM_SETTEXTCOLOR, 0, _colorref(FG))
+	elif isinstance(win, wx.TreeCtrl):
+		_SendMessage(hwnd, TVM_SETBKCOLOR, 0, _colorref(FIELD_BG))
+		_SendMessage(hwnd, TVM_SETTEXTCOLOR, 0, _colorref(FG))
+	if isinstance(win, wx.CheckListBox):
+		parent = win.GetParent()
+		if parent:
+			native.registerCheckList(hwnd, parent.GetHandle(), win, True)
+	if isinstance(win, wx.TextCtrl) and native.isRichEdit(hwnd):
+		native.applyRich(hwnd, True)
+	for h in _framedHwnds(win, hwnd):
+		native.applyFrame(h, True)
+	if isinstance(win, wx.Button) and native.isPlainPushButton(hwnd):
+		native.applyButton(hwnd, True)
+	if isinstance(win, wx.Notebook):
+		native.applyTabs(hwnd, True)
 	if isinstance(win, wx.ListCtrl):
 		header = _SendMessage(hwnd, LVM_GETHEADER, 0, 0)
 		if header:
@@ -255,6 +318,23 @@ def _restoreLight(win, hwnd, state):
 		win.SetOwnForegroundColour(fg)
 	# wx applies "Explorer" to lists/trees itself; everything else gets the default theme.
 	_setWindowTheme(hwnd, "Explorer" if isinstance(win, (wx.ListCtrl, wx.TreeCtrl)) else None)
+	if isinstance(win, wx.ListCtrl):
+		_SendMessage(hwnd, LVM_SETBKCOLOR, 0, CLR_DEFAULT)
+		_SendMessage(hwnd, LVM_SETTEXTBKCOLOR, 0, CLR_DEFAULT)
+		_SendMessage(hwnd, LVM_SETTEXTCOLOR, 0, CLR_DEFAULT)
+	elif isinstance(win, wx.TreeCtrl):
+		_SendMessage(hwnd, TVM_SETBKCOLOR, 0, -1)
+		_SendMessage(hwnd, TVM_SETTEXTCOLOR, 0, -1)
+	if isinstance(win, wx.CheckListBox):
+		native.registerCheckList(hwnd, 0, win, False)
+	if isinstance(win, wx.TextCtrl) and native.isRichEdit(hwnd):
+		native.applyRich(hwnd, False)
+	for h in _framedHwnds(win, hwnd):
+		native.applyFrame(h, False)
+	if isinstance(win, wx.Button):
+		native.applyButton(hwnd, False)
+	if isinstance(win, wx.Notebook):
+		native.applyTabs(hwnd, False)
 	if isinstance(win, wx.ListCtrl):
 		header = _SendMessage(hwnd, LVM_GETHEADER, 0, 0)
 		if header:
@@ -379,6 +459,8 @@ class DarkModeEngine:
 		log.info("nvdaDarkMode: %s dark mode" % ("enabling" if dark else "disabling"))
 		setProcessDark(dark)
 		themeAllWindows(dark)
+		if not dark:
+			native.detachAll()
 
 	def _onWindowCreate(self, event):
 		event.Skip()

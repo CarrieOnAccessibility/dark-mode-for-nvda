@@ -18,6 +18,11 @@ import wx
 from . import theming
 
 try:
+	from . import devhook  # development builds only; absent from the packaged add-on
+except ImportError:
+	devhook = None
+
+try:
 	addonHandler.initTranslation()
 except Exception:  # not running from an installed add-on (e.g. scratchpad)
 	pass
@@ -92,8 +97,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self.engine.start()
 		except Exception:
 			log.exception("nvdaDarkMode: engine failed to start")
+		self._devhook = devhook.DevHook(self) if devhook else None
 
 	def terminate(self):
+		if self._devhook:
+			self._devhook.stop()
 		config.post_configProfileSwitch.unregister(self.onConfigChanged)
 		config.post_configReset.unregister(self.onConfigChanged)
 		try:

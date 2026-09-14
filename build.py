@@ -36,7 +36,7 @@ def build() -> str:
 		for root, dirs, files in os.walk(ADDON):
 			dirs[:] = [d for d in dirs if d != "__pycache__"]
 			for name in files:
-				if name.endswith(".pyc"):
+				if name.endswith(".pyc") or name == "devhook.py":  # devhook is development-only
 					continue
 				full = os.path.join(root, name)
 				z.write(full, os.path.relpath(full, ADDON))
@@ -49,6 +49,9 @@ def install():
 	if os.path.isdir(target):
 		shutil.rmtree(target)
 	shutil.copytree(ADDON, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+	# Tell the dev hook where this project's screenshot folder is.
+	with open(os.path.join(target, "globalPlugins", "nvdaDarkMode", "dev_shots_dir.txt"), "w", encoding="utf-8") as f:
+		f.write(os.path.join(HERE, "dev", "shots"))
 	print("installed to", target, "- restart NVDA")
 
 

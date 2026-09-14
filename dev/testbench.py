@@ -66,6 +66,7 @@ class FakeSettings(wx.Dialog):
 		for name in ["General", "Speech", "Braille", "Vision", "Keyboard", "Mouse", "Review Cursor", "Dark Mode"]:
 			self.catList.Append((name,))
 		self.catList.Select(0)
+		self.probe = {"catList": self.catList}
 		left.Add(self.catList, 1, wx.EXPAND | wx.ALL, 5)
 		grid.Add(left, 0, wx.EXPAND)
 
@@ -79,6 +80,9 @@ class FakeSettings(wx.Dialog):
 		ch = wx.Choice(panel, choices=["User default, English", "English, United States", "Deutsch", "Español"])
 		ch.SetSelection(0)
 		row.Add(ch, 0)
+		disBtn = wx.Button(panel, label="Disabled")
+		disBtn.Disable()
+		row.Add(disBtn, 0, wx.LEFT, 12)
 		ps.Add(row, 0, wx.ALL, 6)
 
 		for label, val in [("&Save configuration when exiting NVDA", True), ("Show exit options when quitting NVDA", True), ("&Play sounds when starting or exiting NVDA", False), ("&Automatically check for NVDA updates", True)]:
@@ -110,13 +114,22 @@ class FakeSettings(wx.Dialog):
 		row.Add(wx.StaticText(panel, label="&Update mirror URL:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
 		tc = wx.TextCtrl(panel, value="https://download.nvaccess.org/", size=panel.FromDIP(wx.Size(260, -1)))
 		row.Add(tc, 0)
-		row.Add(wx.Button(panel, label="&Change..."), 0, wx.LEFT, 6)
+		self.probe["textField"] = tc
+		rich = wx.TextCtrl(panel, style=wx.TE_RICH2 | wx.TE_MULTILINE | wx.TE_READONLY, size=panel.FromDIP(wx.Size(220, 28)))
+		self.probe["richText"] = rich
+		wx.CallAfter(rich.SetValue, "No mirror")
+		changeBtn = wx.Button(panel, label="&Change...")
+		self.probe["button"] = changeBtn
+		row.Add(changeBtn, 0, wx.LEFT, 6)
+		self.probe["disabledButton"] = disBtn
 		ps.Add(row, 0, wx.ALL, 6)
+		ps.Add(rich, 0, wx.ALL, 6)
 
 		row = wx.BoxSizer(wx.HORIZONTAL)
 		clb = wx.CheckListBox(panel, choices=["Report fonts", "Report colors", "Report emphasis", "Report links", "Report headings"], size=panel.FromDIP(wx.Size(220, 90)))
 		clb.Check(1)
 		clb.Check(3)
+		self.probe["checkList"] = clb
 		row.Add(clb, 0, wx.RIGHT, 10)
 		tree = wx.TreeCtrl(panel, size=panel.FromDIP(wx.Size(220, 90)), style=wx.TR_HAS_BUTTONS | wx.TR_DEFAULT_STYLE)
 		root = tree.AddRoot("Add-ons")
@@ -125,11 +138,21 @@ class FakeSettings(wx.Dialog):
 		tree.AppendItem(a, "Eloquence")
 		tree.AppendItem(root, "Available")
 		tree.ExpandAll()
+		self.probe["tree"] = tree
 		row.Add(tree, 0)
 		ps.Add(row, 0, wx.ALL, 6)
 
+		nb = wx.Notebook(panel, size=panel.FromDIP(wx.Size(-1, 90)))
+		for name in ["Installed add-ons", "Updatable add-ons", "Available add-ons"]:
+			pg = wx.Panel(nb)
+			wx.StaticText(pg, label="page: " + name, pos=pg.FromDIP(wx.Point(8, 8)))
+			nb.AddPage(pg, name)
+		ps.Add(nb, 0, wx.ALL | wx.EXPAND, 6)
+		self.probe["notebook"] = nb
 		ro = wx.TextCtrl(panel, value="This is a read-only multi-line text box like the ones NVDA uses for add-on descriptions.\nLine two.\nLine three.", style=wx.TE_MULTILINE | wx.TE_READONLY, size=panel.FromDIP(wx.Size(-1, 70)))
 		ps.Add(ro, 0, wx.ALL | wx.EXPAND, 6)
+		self.probe["readOnlyText"] = ro
+		self.probe["choice"] = ch
 
 		dis = wx.CheckBox(panel, label="A disabled checkbox")
 		dis.Disable()
@@ -202,6 +225,38 @@ menu.AppendSeparator()
 menu.Append(wx.ID_EXIT, "E&xit")
 
 
+def _dominant(img):
+	from collections import Counter
+
+	c = Counter(img.get_flattened_data() if hasattr(img, "get_flattened_data") else img.getdata())
+	bg = c.most_common(1)[0][0]
+	rest = [col for col, n in c.most_common(6) if col != bg]
+	return bg, rest[:2]
+
+
+def measure(win, name):
+	"""Report background + text colour inside the control, and its edge colours."""
+	l, t, r, b = hwndRect(win.GetHandle())
+	# top-left portion only: avoids scrollbars and clipped edges
+	inner = ImageGrab.grab(bbox=(l + 4, t + 4, l + 4 + max(8, (r - l) * 6 // 10), t + 4 + max(8, (b - t) * 4 // 10)), all_screens=True)
+	bg, text = _dominant(inner)
+	edge = ImageGrab.grab(bbox=(l, t, l + 3, b), all_screens=True)  # left edge, 3px wide
+	edgeCols = [edge.getpixel((x, edge.height // 2)) for x in range(3)]
+	print(f"  {name:15s} bg={bg} text={text} leftEdge={edgeCols}")
+
+
+def report(dlg):
+	import native as _n
+	h = dlg.probe["catList"].GetHandle()
+	print("catList hwnd", h, "hasFrame", _n.hasFrame(h), "exstyle", hex(_n._GetWindowLongW(h, -20) & 0xFFFFFFFF), "style", hex(_n._GetWindowLongW(h, -16) & 0xFFFFFFFF), "subclassed", _n._subclassed.get(h), "GetBorder", dlg.probe["catList"].GetBorder(), "BORDER_NONE", wx.BORDER_NONE, "BORDER_THEME", wx.BORDER_THEME)
+	print("measurements (bg, text-ish colours, edge pixels):")
+	for name, win in dlg.probe.items():
+		try:
+			measure(win, name)
+		except Exception as e:
+			print("  ", name, "failed:", e)
+
+
 def popupExists():
 	return bool(ctypes.windll.user32.FindWindowW("#32768", None))
 
@@ -209,6 +264,7 @@ def popupExists():
 def stepShotDialog():
 	print("phase 1: popup visible before dialog shot?", popupExists())
 	screenshot([dlg.GetHandle()], os.path.join(args.out, f"settings-{tag}.png"), pad=8)
+	report(dlg)
 	wx.CallLater(300, stepMenu)
 
 
