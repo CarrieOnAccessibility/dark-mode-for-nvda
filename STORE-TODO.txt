@@ -9,8 +9,9 @@ clear which parts are yours.)
 LICENSE file and copyright headers are in place.
 
 
-2. CREATE A PUBLIC GITHUB REPOSITORY
+2. CREATE A PUBLIC GITHUB REPOSITORY  -- DONE (14 Sept 2026)
 ------------------------------------
+https://github.com/CarrieOnAccessibility/dark-mode-for-nvda (public, GPL-2.0 recognised).
 The store requires the source code to be publicly viewable, and the download
 link has to be a permanent https address. A public GitHub repository under your
 own account does both:
