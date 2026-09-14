@@ -14,6 +14,8 @@
 #     slightly softer disabled state than the theme provides.
 #   * Tab painter (ID_TABS): the tab strip of a wx.Notebook (SysTabControl32)
 #     has no dark theme at all, so its tabs are drawn by us on WM_PAINT.
+#   * Header painter (ID_HEADER): list view column headers (SysHeader32) get
+#     black text and invisible separators from the theme; painted by us.
 #   * Owner-drawn rows (ID_OWNERDRAW): wx.CheckListBox rows are painted by wx
 #     with system colours; the parent's WM_DRAWITEM is handled here instead.
 
@@ -69,6 +71,27 @@ class TCITEMW(ctypes.Structure):
 		("iImage", ctypes.c_int),
 		("lParam", ctypes.c_size_t),
 	]
+
+
+class HDITEMW(ctypes.Structure):
+	_fields_ = [
+		("mask", wintypes.UINT),
+		("cxy", ctypes.c_int),
+		("pszText", wintypes.LPWSTR),
+		("hbm", HANDLE),
+		("cchTextMax", ctypes.c_int),
+		("fmt", ctypes.c_int),
+		("lParam", ctypes.c_size_t),
+		("iImage", ctypes.c_int),
+		("iOrder", ctypes.c_int),
+		("type", wintypes.UINT),
+		("pvFilter", ctypes.c_void_p),
+		("state", wintypes.UINT),
+	]
+
+
+class HDHITTESTINFO(ctypes.Structure):
+	_fields_ = [("pt", wintypes.POINT), ("flags", wintypes.UINT), ("iItem", ctypes.c_int)]
 
 
 class TCHITTESTINFO(ctypes.Structure):
@@ -210,6 +233,19 @@ WM_UPDATEUISTATE = 0x0128
 WM_MOUSEMOVE = 0x0200
 WM_MOUSELEAVE = 0x02A3
 TME_LEAVE = 0x2
+HDM_GETITEMCOUNT = 0x1200
+HDM_HITTEST = 0x1206
+HDM_GETITEMRECT = 0x1207
+HDM_GETITEMW = 0x120B
+HDM_GETORDERARRAY = 0x1211
+HDI_TEXT = 0x2
+HDI_FORMAT = 0x4
+HDF_JUSTIFYMASK = 0x3
+HDF_CENTER = 0x2
+HDF_RIGHT = 0x1
+HDF_SORTUP = 0x400
+HDF_SORTDOWN = 0x200
+DT_RIGHT = 0x2
 TCM_GETITEMCOUNT = 0x1304
 TCM_GETITEMRECT = 0x130A
 TCM_GETCURSEL = 0x130B
@@ -275,6 +311,7 @@ ID_BUTTON = 2
 ID_OWNERDRAW = 3  # on the PARENT of owner-drawn check list boxes (WM_DRAWITEM goes there)
 ID_TABS = 4
 ID_RICH = 5  # rich edit controls: keep text colour applied after the text is replaced
+ID_HEADER = 6
 
 
 def colorref(rgb):
@@ -303,6 +340,11 @@ TAB_TEXT = (0xC8, 0xC8, 0xC8)  # unselected tab label
 TAB_SELECTED_FACE = (0x3A, 0x3A, 0x3A)
 TAB_HOT_FACE = (0x50, 0x50, 0x50)
 TAB_SELECTED_TEXT = (0xFF, 0xFF, 0xFF)
+HEADER_BG = (0x2B, 0x2B, 0x2B)
+HEADER_HOT_BG = (0x3A, 0x3A, 0x3A)
+HEADER_TEXT = (0xFF, 0xFF, 0xFF)
+HEADER_SEPARATOR = (0x80, 0x80, 0x80)  # vertical lines between columns
+HEADER_BOTTOM = (0xC8, 0xC8, 0xC8)  # line under the header, matches the field frames
 
 _tabHot = {}  # tab control hwnd -> hovered tab index
 
@@ -583,6 +625,88 @@ def _paintTabs(hwnd):
 		_EndPaint(hwnd, ctypes.byref(ps))
 
 
+def _headerItem(hwnd, index):
+	buf = ctypes.create_unicode_buffer(256)
+	item = HDITEMW()
+	item.mask = HDI_TEXT | HDI_FORMAT
+	item.pszText = ctypes.cast(buf, wintypes.LPWSTR)
+	item.cchTextMax = 256
+	_SendMessageW(hwnd, HDM_GETITEMW, index, ctypes.addressof(item))
+	return buf.value, item.fmt
+
+
+def _paintHeader(hwnd):
+	ps = PAINTSTRUCT()
+	hdc = _BeginPaint(hwnd, ctypes.byref(ps))
+	if not hdc:
+		return
+	try:
+		rc = RECT()
+		_GetClientRect(hwnd, ctypes.byref(rc))
+		bg = _CreateSolidBrush(colorref(HEADER_BG))
+		_FillRect(hdc, ctypes.byref(rc), bg)
+		_DeleteObject(bg)
+		count = _SendMessageW(hwnd, HDM_GETITEMCOUNT, 0, 0)
+		hot = _tabHot.get(hwnd, -1)
+		font = _SendMessageW(hwnd, WM_GETFONT, 0, 0)
+		oldFont = _SelectObject(hdc, font) if font else None
+		_SetBkMode(hdc, TRANSPARENT)
+		sepBrush = _CreateSolidBrush(colorref(HEADER_SEPARATOR))
+		hotBrush = _CreateSolidBrush(colorref(HEADER_HOT_BG))
+		textBrush = _CreateSolidBrush(colorref(HEADER_TEXT))
+		dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
+		pad = max(3, round(4 * dpi / 96))
+		for i in range(count):
+			r = RECT()
+			_SendMessageW(hwnd, HDM_GETITEMRECT, i, ctypes.addressof(r))
+			if i == hot:
+				_FillRect(hdc, ctypes.byref(r), hotBrush)
+			text, fmt = _headerItem(hwnd, i)
+			align = fmt & HDF_JUSTIFYMASK
+			flags = DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX
+			flags |= DT_CENTER if align == HDF_CENTER else DT_RIGHT if align == HDF_RIGHT else DT_LEFT
+			_SetTextColor(hdc, colorref(HEADER_TEXT))
+			trc = RECT(r.left + pad, r.top, r.right - pad, r.bottom)
+			_DrawTextW(hdc, text, -1, ctypes.byref(trc), flags)
+			if fmt & (HDF_SORTUP | HDF_SORTDOWN):
+				# small sort triangle at the top centre of the column
+				size = max(3, round(3 * dpi / 96))
+				cx = (r.left + r.right) // 2
+				top = r.top + 1
+				if fmt & HDF_SORTUP:
+					pts = (wintypes.POINT * 3)(wintypes.POINT(cx - size, top + size), wintypes.POINT(cx + size, top + size), wintypes.POINT(cx, top))
+				else:
+					pts = (wintypes.POINT * 3)(wintypes.POINT(cx - size, top), wintypes.POINT(cx + size, top), wintypes.POINT(cx, top + size))
+				pen = _CreatePen(PS_SOLID, 1, colorref(HEADER_TEXT))
+				oldPen = _SelectObject(hdc, pen)
+				oldBrush = _SelectObject(hdc, textBrush)
+				_gdi32.Polygon(hdc, pts, 3)
+				_SelectObject(hdc, oldPen)
+				_SelectObject(hdc, oldBrush)
+				_DeleteObject(pen)
+			sep = RECT(r.right - 1, r.top + pad, r.right, r.bottom - pad)
+			_FillRect(hdc, ctypes.byref(sep), sepBrush)
+		bottomBrush = _CreateSolidBrush(colorref(HEADER_BOTTOM))
+		bottom = RECT(rc.left, rc.bottom - 1, rc.right, rc.bottom)
+		_FillRect(hdc, ctypes.byref(bottom), bottomBrush)
+		_DeleteObject(bottomBrush)
+		_DeleteObject(sepBrush)
+		_DeleteObject(hotBrush)
+		_DeleteObject(textBrush)
+		if oldFont:
+			_SelectObject(hdc, oldFont)
+	finally:
+		_EndPaint(hwnd, ctypes.byref(ps))
+
+
+def _headerHitTest(hwnd, lParam):
+	info = HDHITTESTINFO()
+	info.pt.x = ctypes.c_short(lParam & 0xFFFF).value
+	info.pt.y = ctypes.c_short((lParam >> 16) & 0xFFFF).value
+	_SendMessageW(hwnd, HDM_HITTEST, 0, ctypes.addressof(info))
+	return info.iItem
+
+
 def _tabHitTest(hwnd, lParam):
 	info = TCHITTESTINFO()
 	info.pt.x = ctypes.c_short(lParam & 0xFFFF).value
@@ -638,6 +762,22 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 				applyRichColours(hwnd, LIST_TEXT, LIST_BG)
 				return res
+		elif idSubclass == ID_HEADER:
+			if msg == WM_PAINT:
+				_paintHeader(hwnd)
+				return 0
+			if msg == WM_ERASEBKGND:
+				return 1
+			if msg == WM_MOUSEMOVE:
+				hit = _headerHitTest(hwnd, lParam)
+				if _tabHot.get(hwnd, -1) != hit:
+					_tabHot[hwnd] = hit
+					_InvalidateRect(hwnd, None, False)
+				tme = TRACKMOUSEEVENT(ctypes.sizeof(TRACKMOUSEEVENT), TME_LEAVE, hwnd, 0)
+				_user32.TrackMouseEvent(ctypes.byref(tme))
+			elif msg == WM_MOUSELEAVE:
+				if _tabHot.pop(hwnd, None) is not None:
+					_InvalidateRect(hwnd, None, False)
 		elif idSubclass == ID_TABS:
 			if msg == WM_PAINT:
 				_paintTabs(hwnd)
@@ -750,6 +890,16 @@ def applyRich(hwnd, dark: bool):
 		sysText = _GetSysColor(8)  # COLOR_WINDOWTEXT
 		sysBg = _GetSysColor(5)  # COLOR_WINDOW
 		applyRichColours(hwnd, (sysText & 0xFF, (sysText >> 8) & 0xFF, (sysText >> 16) & 0xFF), (sysBg & 0xFF, (sysBg >> 8) & 0xFF, (sysBg >> 16) & 0xFF))
+	if _IsWindow(hwnd):
+		_InvalidateRect(hwnd, None, True)
+
+
+def applyHeader(hwnd, dark: bool):
+	if dark:
+		_attach(hwnd, ID_HEADER)
+	else:
+		_detach(hwnd, ID_HEADER)
+		_tabHot.pop(hwnd, None)
 	if _IsWindow(hwnd):
 		_InvalidateRect(hwnd, None, True)
 

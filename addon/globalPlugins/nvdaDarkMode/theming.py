@@ -278,6 +278,9 @@ def _applyDark(win, hwnd):
 		_SendMessage(hwnd, LVM_SETBKCOLOR, 0, _colorref(FIELD_BG))
 		_SendMessage(hwnd, LVM_SETTEXTBKCOLOR, 0, _colorref(FIELD_BG))
 		_SendMessage(hwnd, LVM_SETTEXTCOLOR, 0, _colorref(FG))
+		header = _SendMessage(hwnd, LVM_GETHEADER, 0, 0)
+		if header:
+			native.applyHeader(header, True)
 	elif isinstance(win, wx.TreeCtrl):
 		_SendMessage(hwnd, TVM_SETBKCOLOR, 0, _colorref(FIELD_BG))
 		_SendMessage(hwnd, TVM_SETTEXTCOLOR, 0, _colorref(FG))
@@ -322,6 +325,9 @@ def _restoreLight(win, hwnd, state):
 		_SendMessage(hwnd, LVM_SETBKCOLOR, 0, CLR_DEFAULT)
 		_SendMessage(hwnd, LVM_SETTEXTBKCOLOR, 0, CLR_DEFAULT)
 		_SendMessage(hwnd, LVM_SETTEXTCOLOR, 0, CLR_DEFAULT)
+		header = _SendMessage(hwnd, LVM_GETHEADER, 0, 0)
+		if header:
+			native.applyHeader(header, False)
 	elif isinstance(win, wx.TreeCtrl):
 		_SendMessage(hwnd, TVM_SETBKCOLOR, 0, -1)
 		_SendMessage(hwnd, TVM_SETTEXTCOLOR, 0, -1)

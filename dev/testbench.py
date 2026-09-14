@@ -48,7 +48,7 @@ os.makedirs(args.out, exist_ok=True)
 
 class CatList(wx.ListCtrl, listmix.ListCtrlAutoWidthMixin):
 	def __init__(self, parent):
-		wx.ListCtrl.__init__(self, parent, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.LC_NO_HEADER)
+		wx.ListCtrl.__init__(self, parent, style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.LC_HRULES | wx.LC_VRULES)
 		listmix.ListCtrlAutoWidthMixin.__init__(self)
 
 
@@ -62,9 +62,10 @@ class FakeSettings(wx.Dialog):
 		left = wx.BoxSizer(wx.VERTICAL)
 		left.Add(wx.StaticText(self, label="&Categories:"), 0, wx.ALL, 5)
 		self.catList = CatList(self)
-		self.catList.InsertColumn(0, "Categories")
+		self.catList.InsertColumn(0, "Name")
+		self.catList.InsertColumn(1, "Status", width=self.FromDIP(90))
 		for name in ["General", "Speech", "Braille", "Vision", "Keyboard", "Mouse", "Review Cursor", "Dark Mode"]:
-			self.catList.Append((name,))
+			self.catList.Append((name, "Enabled"))
 		self.catList.Select(0)
 		self.probe = {"catList": self.catList}
 		left.Add(self.catList, 1, wx.EXPAND | wx.ALL, 5)

@@ -360,6 +360,40 @@ class DevHook:
 				cnt = Counter(img.get_flattened_data() if hasattr(img, "get_flattened_data") else img.getdata())
 				print(f"  row {i}: {c.GetItemText(i)[:24]!r:28s} {cnt.most_common(3)}")
 
+	def v_header(self, titlePart, name="header"):
+		"""Screenshot + colours of the column header of the first list control in the dialog."""
+		from PIL import ImageGrab
+		from collections import Counter
+
+		w = _findTLW(titlePart)
+		if not w:
+			print("no shown window with title containing", repr(titlePart))
+			return
+		for c in _walk(w):
+			if not isinstance(c, wx.ListCtrl) or not c.IsShownOnScreen():
+				continue
+			header = _user32.SendMessageW(c.GetHandle(), 0x101F, 0, 0)  # LVM_GETHEADER
+			buf = ctypes.create_unicode_buffer(64)
+			_user32.GetClassNameW(header, buf, 64)
+			ex = _user32.SendMessageW(c.GetHandle(), 0x1037, 0, 0)  # LVM_GETEXTENDEDLISTVIEWSTYLE
+			print(type(c).__name__, "header hwnd", header, buf.value, "visible", bool(_user32.IsWindowVisible(header)), "ex style", hex(ex), "gridlines", bool(ex & 0x1))
+			if header:
+				l, t, r, b = _hwndRect(header)
+				img = ImageGrab.grab(bbox=(l, t, min(r, l + 900), b), all_screens=True)
+				img.save(_shotPath(name))
+				cnt = Counter(img.get_flattened_data() if hasattr(img, "get_flattened_data") else img.getdata())
+				print("  header colours:", cnt.most_common(5))
+				# one row below the header, for grid lines
+				r0 = c.GetItemRect(0) if c.GetItemCount() else None
+				if r0:
+					tl = c.ClientToScreen(wx.Point(r0.x, r0.y))
+					row = ImageGrab.grab(bbox=(tl.x, tl.y, tl.x + 900, tl.y + r0.height), all_screens=True)
+					cols = Counter(row.get_flattened_data() if hasattr(row, "get_flattened_data") else row.getdata())
+					print("  row 0 colours:", cols.most_common(5))
+					line = [row.getpixel((x, r0.height - 1)) for x in range(0, 900, 150)]
+					print("  row 0 bottom line samples:", line)
+			return
+
 	def v_type(self, titlePart, text="Typed text"):
 		"""Type into the first shown text box of the dialog (posted straight to the control)."""
 		w = _findTLW(titlePart)
