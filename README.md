@@ -15,6 +15,7 @@ This folder is NOT part of the website. It is excluded from SFTP uploads (see `.
 - `dev/flashcap.py` - films the screen centre at ~60 fps from outside NVDA and reports how bright each frame was, to catch flashes when the NVDA menu opens. `python dev/flashcap.py NAME` pops the menu through the dev hook; `--wait 60` films while you open it yourself with NVDA+N. Filming from inside NVDA slows NVDA down and distorts what you're measuring, which is why this is a separate process.
 - `dev/exp_grip.py` - tiny resizable dialog for checking the size grip painter (the bench dialog is not resizable).
 - `dev/exp_erase.py` - shows one of every control type, then blocks its own main thread so nothing can paint, while a helper thread photographs it: whatever is white in that photo is what flashes in NVDA between a dialog's erase and its first paint. Pops a window titled "Erase test (Not Responding)" - that is expected.
+- `dev/sweep.py` - the full audit: every settings category (through the category list, top and scrolled to the bottom), every dialog the dev hook can open, and the menus; flags dark text on dark backgrounds and light backgrounds per control. Run it after any painting change; it should end with "nothing flagged".
 - `dist/` - built packages.
 
 ## Versioning

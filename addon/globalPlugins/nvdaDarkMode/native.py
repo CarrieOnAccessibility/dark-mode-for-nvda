@@ -407,6 +407,11 @@ ODS_SELECTED = 0x0001
 ODS_DISABLED = 0x0004
 ODS_FOCUS = 0x0010
 BP_CHECKBOX = 3
+BP_RADIOBUTTON = 2
+BM_GETCHECK = 0x00F0
+BST_CHECKED = 0x0001
+RADIO_TEXT = (0xFF, 0xFF, 0xFF)
+RADIO_DISABLED_TEXT = (0x9C, 0x9C, 0x9C)
 CBS_UNCHECKEDNORMAL = 1
 CBS_UNCHECKEDDISABLED = 4
 CBS_CHECKEDNORMAL = 5
@@ -429,6 +434,7 @@ ID_ERASE = 9  # controls that only paint their background at WM_PAINT: dark base
 ID_SHOWPAINT = 10  # top-level windows: paint everything synchronously the moment they appear; title separator
 ID_STATICBOX = 11  # group boxes (wx.StaticBox / wx.RadioBox): our own border and label
 ID_STATICLINE = 12  # wx.StaticLine: one soft line instead of the etched white/grey pair
+ID_RADIO = 13  # radio buttons: theme glyph plus a label we draw (the dark theme has no light radio text)
 
 
 def colorref(rgb):
@@ -836,8 +842,7 @@ def _drawSliderChannel(hwnd, hdc, rc):
 
 def _paintCheckItem(dis):
 	"""Draw one wx.CheckListBox row: background, check box glyph, label."""
-	ref = _checkLists.get(dis.hwndItem)
-	win = ref() if ref else None
+	win = _checkLists.get(dis.hwndItem)
 	if win is None or dis.itemID == 0xFFFFFFFF:
 		return False
 	hdc = dis.hDC
@@ -849,7 +854,7 @@ def _paintCheckItem(dis):
 		checked = bool(win.IsChecked(dis.itemID))
 		text = win.GetString(dis.itemID)
 	except Exception:
-		checked, text = False, ""
+		return False  # wrapper gone: let Windows draw rather than draw wrong
 
 	if selected and hasFocus:
 		bg = _GetSysColor(COLOR_HIGHLIGHT)
@@ -924,6 +929,71 @@ def _drawGrip(hwnd, hdc):
 			r = RECT(x, y, x + dot, y + dot)
 			_FillRect(hdc, ctypes.byref(r), dotBrush)
 	_DeleteObject(dotBrush)
+
+
+def _paintRadio(hwnd):
+	_paintWith(hwnd, _drawRadio)
+
+
+def _drawRadio(hwnd, hdc):
+	"""A radio button: the theme's own glyph (dark style, accent when checked) and the
+	label in our text colour. Windows' dark theme draws radio labels black."""
+	rc = RECT()
+	_GetClientRect(hwnd, ctypes.byref(rc))
+	w, h = rc.right, rc.bottom
+	bg = _CreateSolidBrush(colorref(PARENT_BG))
+	_FillRect(hdc, ctypes.byref(rc), bg)
+	_DeleteObject(bg)
+	enabled = bool(_IsWindowEnabled(hwnd))
+	checked = bool(_SendMessageW(hwnd, BM_GETCHECK, 0, 0) & BST_CHECKED)
+	state = _SendMessageW(hwnd, BM_GETSTATE, 0, 0)
+	hot = bool(state & BST_HOT)
+	pushed = bool(state & BST_PUSHED)
+	focused = bool(state & BST_FOCUS)
+	uistate = _SendMessageW(hwnd, WM_QUERYUISTATE, 0, 0)
+	dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
+	glyph = round(13 * dpi / 96)
+	theme = _OpenThemeData(hwnd, "Button")
+	if theme:
+		size = SIZE()
+		if _GetThemePartSize(theme, hdc, BP_RADIOBUTTON, 1, None, 1, ctypes.byref(size)) == 0 and size.cx:
+			glyph = min(size.cx, h)
+	top = max(0, (h - glyph) // 2)
+	box = RECT(0, top, glyph, top + glyph)
+	if theme:
+		# RBS_*: 1 unchecked normal, 2 hot, 3 pressed, 4 disabled; +4 for checked
+		part = 1
+		if not enabled:
+			part = 4
+		elif pushed:
+			part = 3
+		elif hot:
+			part = 2
+		if checked:
+			part += 4
+		_DrawThemeBackground(theme, hdc, BP_RADIOBUTTON, part, ctypes.byref(box), None)
+		_CloseThemeData(theme)
+	text = _windowText(hwnd)
+	if text:
+		font = _SendMessageW(hwnd, WM_GETFONT, 0, 0)
+		oldFont = _SelectObject(hdc, font) if font else None
+		_SetBkMode(hdc, TRANSPARENT)
+		_SetTextColor(hdc, colorref(RADIO_TEXT if enabled else RADIO_DISABLED_TEXT))
+		flags = DT_LEFT | DT_VCENTER | DT_SINGLELINE
+		if uistate & UISF_HIDEACCEL:
+			flags |= DT_HIDEPREFIX
+		gap = round(3 * dpi / 96)
+		trc = RECT(glyph + gap, 0, w, h)
+		_DrawTextW(hdc, text, -1, ctypes.byref(trc), flags)
+		if focused and not (uistate & UISF_HIDEFOCUS):
+			calc = RECT(0, 0, 0, 0)
+			_DrawTextW(hdc, text, -1, ctypes.byref(calc), flags | DT_CALCRECT)
+			ring = _CreateSolidBrush(colorref(FOCUS))
+			fr = RECT(glyph + gap - 1, max(0, (h - calc.bottom) // 2 - 1), min(w, glyph + gap + calc.right + 2), min(h, (h + calc.bottom) // 2 + 1))
+			_FrameRect(hdc, ctypes.byref(fr), ring)
+			_DeleteObject(ring)
+		if oldFont:
+			_SelectObject(hdc, oldFont)
 
 
 def _tabText(hwnd, index):
@@ -1225,6 +1295,17 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 				_cleanUpAfterBoxMove(hwnd)
 				return res
+		elif idSubclass == ID_RADIO:
+			if msg == WM_PAINT:
+				_paintRadio(hwnd)
+				return 0
+			if msg == WM_ERASEBKGND:
+				_drawRadio(hwnd, wParam)
+				return 1
+			if msg in (WM_ENABLE, WM_UPDATEUISTATE, WM_SETFOCUS, WM_KILLFOCUS):
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				_InvalidateRect(hwnd, None, False)
+				return res
 		elif idSubclass == ID_STATICLINE:
 			if msg == WM_NCPAINT:
 				_paintStaticLine(hwnd)
@@ -1477,6 +1558,15 @@ def applyStaticBox(hwnd, dark: bool):
 		_InvalidateRect(hwnd, None, True)
 
 
+def applyRadio(hwnd, dark: bool):
+	if dark:
+		_attach(hwnd, ID_RADIO)
+	else:
+		_detach(hwnd, ID_RADIO)
+	if _IsWindow(hwnd):
+		_InvalidateRect(hwnd, None, True)
+
+
 def applyStaticLine(hwnd, dark: bool):
 	if dark:
 		_attach(hwnd, ID_STATICLINE)
@@ -1510,7 +1600,10 @@ def registerSlider(hwnd, hwndParent, dark: bool):
 def registerCheckList(hwnd, hwndParent, win, dark: bool):
 	"""Owner-draw the rows of a wx.CheckListBox (its parent receives WM_DRAWITEM)."""
 	if dark:
-		_checkLists[hwnd] = weakref.ref(win)
+		# A strong reference: a weak one died whenever nothing else in Python held the
+		# control (NVDA's own panels often do not), and the rows fell back to black.
+		# WM_NCDESTROY on the list drops the entry.
+		_checkLists[hwnd] = win
 		_attach(hwndParent, ID_OWNERDRAW)
 	else:
 		_checkLists.pop(hwnd, None)

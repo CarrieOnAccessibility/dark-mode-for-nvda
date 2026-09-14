@@ -67,6 +67,17 @@ _IsWindow = _user32.IsWindow
 _IsWindow.argtypes = (wintypes.HWND,)
 _IsWindow.restype = wintypes.BOOL
 
+_GetWindow = _user32.GetWindow
+_GetWindow.argtypes = (wintypes.HWND, wintypes.UINT)
+_GetWindow.restype = wintypes.HWND
+_GetParent = _user32.GetParent
+_GetParent.argtypes = (wintypes.HWND,)
+_GetParent.restype = wintypes.HWND
+_GetWindowRect = _user32.GetWindowRect
+_GetWindowRect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
+_GetWindowLong = _user32.GetWindowLongW
+_GetWindowLong.argtypes = (wintypes.HWND, ctypes.c_int)
+_GetWindowLong.restype = ctypes.c_long
 _EnumChildProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 _EnumChildWindows = _user32.EnumChildWindows
 _EnumChildWindows.argtypes = (wintypes.HWND, _EnumChildProc, wintypes.LPARAM)
@@ -189,6 +200,30 @@ def _setTitleBarDark(hwnd, dark: bool):
 			_DwmSetWindowAttribute(hwnd, attr, ctypes.byref(value), ctypes.sizeof(value))
 	if _AllowDarkModeForWindow:
 		_AllowDarkModeForWindow(hwnd, dark)
+
+
+def _radioBoxButtons(hwnd):
+	"""The native radio buttons of a wx.RadioBox: wx creates them as SIBLINGS of the box (owned
+	by the box's parent) that lie inside the box's rectangle, not as its children."""
+	parent = _GetParent(hwnd)
+	if not parent:
+		return []
+	box = wintypes.RECT()
+	_GetWindowRect(hwnd, ctypes.byref(box))
+	out = []
+	buf = ctypes.create_unicode_buffer(32)
+	child = _GetWindow(parent, 5)  # GW_CHILD
+	while child:
+		if child != hwnd:
+			_GetClassName(child, buf, 32)
+			style = _GetWindowLong(child, -16) & 0xFFFFFFFF
+			if buf.value == "Button" and (style & 0xF) in (4, 9):  # BS_RADIOBUTTON, BS_AUTORADIOBUTTON
+				r = wintypes.RECT()
+				_GetWindowRect(child, ctypes.byref(r))
+				if r.left >= box.left and r.top >= box.top and r.right <= box.right and r.bottom <= box.bottom:
+					out.append(child)
+		child = _GetWindow(child, 2)  # GW_HWNDNEXT
+	return out
 
 
 def _nativeChildren(hwnd):
@@ -338,8 +373,11 @@ def _applyDark(win, hwnd):
 		if header:
 			_setWindowTheme(header, "DarkMode_ItemsView")
 	if isinstance(win, wx.RadioBox):
-		for child in _nativeChildren(hwnd):
+		for child in _nativeChildren(hwnd) + _radioBoxButtons(hwnd):
 			_setWindowTheme(child, "DarkMode_Explorer")
+			native.applyRadio(child, True)
+	if isinstance(win, wx.RadioButton):
+		native.applyRadio(hwnd, True)
 	if isinstance(win, wx.TopLevelWindow):
 		_setTitleBarDark(hwnd, True)
 		native.applyShowPaint(hwnd, True)
@@ -398,8 +436,11 @@ def _restoreLight(win, hwnd, state):
 		if header:
 			_setWindowTheme(header, None)
 	if isinstance(win, wx.RadioBox):
-		for child in _nativeChildren(hwnd):
+		for child in _nativeChildren(hwnd) + _radioBoxButtons(hwnd):
 			_setWindowTheme(child, None)
+			native.applyRadio(child, False)
+	if isinstance(win, wx.RadioButton):
+		native.applyRadio(hwnd, False)
 	if isinstance(win, wx.TopLevelWindow):
 		_setTitleBarDark(hwnd, False)
 		native.applyShowPaint(hwnd, False)
@@ -482,6 +523,7 @@ class DarkModeEngine:
 		"""
 		self._wantDark = wantDark
 		self._active = False
+		self._pendingTrees = {}
 		self.onStateChanged = None  # optional callable, run after dark mode turns on or off
 		self._app = wx.GetApp()
 		self._timer = wx.Timer()
@@ -564,7 +606,30 @@ class DarkModeEngine:
 			themeWindow(win, True)
 		except Exception:
 			log.exception("nvdaDarkMode: failed to theme new window")
-		wx.CallAfter(self._reapply, win)
+		# Second pass once construction has finished. Over the whole top-level window, not
+		# this object: during creation wxPython may hand us a throwaway wrapper (the real
+		# one is registered when the constructor returns), and anything that has to keep
+		# hold of the control - the check list painter, for one - needs the real object,
+		# which walking the tree later returns. One pass per creation burst.
+		try:
+			top = win.GetTopLevelParent() or win
+		except Exception:
+			top = win
+		key = id(top)
+		if key not in self._pendingTrees:
+			self._pendingTrees[key] = top
+			wx.CallAfter(self._reapplyTree, key)
+
+	def _reapplyTree(self, key):
+		top = self._pendingTrees.pop(key, None)
+		if top is None or not self._active:
+			return
+		try:
+			themeTree(top, True, force=True)
+		except RuntimeError:
+			pass  # the window was destroyed before we got here
+		except Exception:
+			log.exception("nvdaDarkMode: failed to re-theme window tree")
 
 	def _reapply(self, win):
 		if not self._active:

@@ -678,6 +678,176 @@ class DevHook:
 		wx.CallLater(700, pop)
 		print("popping tooltip")
 
+	def v_classinfo(self, titlePart, typeName):
+		"""Python class hierarchy (MRO) of controls of a given type name in a dialog, plus parent subclass ids."""
+		from . import native
+
+		w = _findTLW(titlePart)
+		if not w:
+			print("no shown window with title containing", repr(titlePart))
+			return
+		for c in _walk(w):
+			if typeName.lower() in type(c).__name__.lower() or any(typeName.lower() in b.__name__.lower() for b in type(c).__mro__):
+				mro = [b.__name__ for b in type(c).__mro__][:6]
+				parent = c.GetParent()
+				print(type(c).__name__, mro, "isCheckListBox=%s" % isinstance(c, wx.CheckListBox), "parentSubclass=%s" % native._subclassed.get(parent.GetHandle() if parent else 0), "registered=%s" % (c.GetHandle() in native._checkLists))
+
+	AUDIT_TYPES = ("StaticText", "TextCtrl", "CheckBox", "RadioButton", "Button", "Choice", "ComboBox", "ListCtrl",
+		"ListBox", "CheckListBox", "TreeCtrl", "SpinCtrl", "SpinCtrlDouble", "StaticBox", "Notebook", "RadioBox")
+
+	def v_audit(self, titlePart, showAll="0"):
+		"""Flag controls in a dialog whose pixels look like dark text on a dark background, or a
+		light background. Prints only offenders (and a count) unless showAll=1."""
+		from PIL import ImageGrab
+		from collections import Counter
+
+		w = _findTLW(titlePart)
+		if not w:
+			print("no shown window with title containing", repr(titlePart))
+			return
+		wanted = tuple(getattr(wx, n) for n in self.AUDIT_TYPES if hasattr(wx, n))
+		L, T, R, B = _hwndRect(w.GetHandle())
+		checked = flagged = 0
+		for c in _walk(w):
+			if not isinstance(c, wanted) or not c.IsShownOnScreen():
+				continue
+			l, t, r, b = _hwndRect(c.GetHandle())
+			# clip to the dialog (scrolled panels hide the rest)
+			l, t, r, b = max(l, L), max(t, T), min(r, R), min(b, B)
+			# and to the visible part of a scrolled container
+			parent = c.GetParent()
+			while parent is not None and parent is not w:
+				pl, pt, pr, pb = _hwndRect(parent.GetHandle())
+				l, t, r, b = max(l, pl), max(t, pt), min(r, pr), min(b, pb)
+				parent = parent.GetParent()
+			if r - l < 14 or b - t < 10:
+				continue
+			img = ImageGrab.grab(bbox=(l + 2, t + 2, r - 2, b - 2), all_screens=True)
+			px = list(img.get_flattened_data() if hasattr(img, "get_flattened_data") else img.getdata())
+			cnt = Counter(px)
+			bg = cnt.most_common(1)[0][0]
+			nearBlack = sum(n for col, n in cnt.items() if max(col) <= 12)
+			light = sum(n for col, n in cnt.items() if min(col) >= 200)
+			total = len(px)
+			checked += 1
+			try:
+				label = c.GetLabel()[:30]
+			except Exception:
+				label = ""
+			problems = []
+			if max(bg) < 90 and nearBlack > 25 and nearBlack < total * 0.9:
+				problems.append("DARK TEXT ON DARK (%d px)" % nearBlack)
+			if min(bg) >= 200:
+				problems.append("LIGHT BACKGROUND %s" % (bg,))
+			if problems or showAll == "1":
+				flagged += bool(problems)
+				print(f"{'!! ' if problems else '   '}{type(c).__name__:26s} {label!r:32s} bg={bg} {'; '.join(problems)}")
+		print(f"audited {checked} controls, {flagged} flagged")
+
+	def v_categories(self):
+		"""List the titles of NVDA's settings categories."""
+		from gui.settingsDialogs import NVDASettingsDialog
+
+		print("|".join(c.title for c in NVDASettingsDialog.categoryClasses))
+
+	def v_scroll(self, titlePart, y="100000"):
+		"""Scroll the open Settings dialog's panel container to a vertical position (0 = top)."""
+		w = _findTLW(titlePart)
+		if not w or not hasattr(w, "container"):
+			print("no settings dialog")
+			return
+		w.container.Scroll(0, int(y))
+		print("scrolled")
+
+	def v_clbtrace(self, titlePart):
+		"""Repaint the check lists in a dialog while logging each owner-draw call and its outcome."""
+		from . import native
+
+		lines = []
+		orig = native._paintCheckItem
+
+		def traced(dis):
+			ref = native._checkLists.get(dis.hwndItem)
+			win = ref() if ref else None
+			try:
+				res = orig(dis)
+				lines.append("item=%d hwnd=%#x win=%s -> %s" % (dis.itemID, dis.hwndItem, type(win).__name__ if win else None, res))
+			except Exception as e:
+				lines.append("item=%d EXC %r" % (dis.itemID, e))
+				raise
+			return res
+
+		native._paintCheckItem = traced
+		w = _findTLW(titlePart)
+		n = 0
+		for c in _walk(w) if w else []:
+			if isinstance(c, wx.CheckListBox) and c.IsShownOnScreen():
+				_user32.RedrawWindow(c.GetHandle(), None, None, 0x1 | 0x4 | 0x100)
+				n += 1
+
+		def finish():
+			native._paintCheckItem = orig
+			os.makedirs(SHOTS_DIR, exist_ok=True)
+			with open(_shotPath("clbtrace.txt").replace(".png", ""), "w", encoding="utf-8") as f:
+				f.write("lists repainted: %d%s%s" % (n, chr(10), chr(10).join(lines[:30]) or "(no owner-draw calls reached the painter)"))
+
+		self._later = wx.CallLater(800, finish)
+		print("tracing; see clbtrace.txt")
+
+	def v_radioinfo(self, titlePart):
+		"""Native radio buttons inside wx.RadioBox controls: class, style, theme handle, label pixels."""
+		from PIL import ImageGrab
+		from collections import Counter
+
+		from . import theming
+
+		w = _findTLW(titlePart)
+		if not w:
+			print("no shown window with title containing", repr(titlePart))
+			return
+		for c in _walk(w):
+			if isinstance(c, wx.RadioBox):
+				print("RadioBox", repr(c.GetLabel()), "hwnd=%#x parent=%#x siblings-found=%r" % (c.GetHandle(), _user32.GetParent(c.GetHandle()), [hex(h) for h in theming._radioBoxButtons(c.GetHandle())]))
+				l, t, r, b = _hwndRect(c.GetHandle())
+				print("   box rect", (l, t, r, b))
+				for h in theming._nativeChildren(_user32.GetParent(c.GetHandle())):
+					buf = ctypes.create_unicode_buffer(64)
+					_user32.GetClassNameW(h, buf, 64)
+					cls = buf.value
+					_user32.GetWindowTextW(h, buf, 64)
+					txt = buf.value
+					st = _user32.GetWindowLongW(h, -16) & 0xFFFFFFFF
+					theme = ctypes.windll.uxtheme.GetWindowTheme(h)
+					l, t, r, b = _hwndRect(h)
+					img = ImageGrab.grab(bbox=(l + 30, t + 2, r - 2, b - 2), all_screens=True)
+					cnt = Counter(img.getdata()).most_common(3)
+					print("   %#x %s %r style=%#x theme=%#x parent=%#x pixels=%s" % (h, cls, txt, st, theme, _user32.GetParent(h), cnt))
+
+	def v_ctlcolor(self, titlePart):
+		"""Ask a dialog what text colour it answers for each native Button child (WM_CTLCOLORSTATIC)."""
+		from . import native, theming
+
+		w = _findTLW(titlePart)
+		if not w:
+			print("no shown window with title containing", repr(titlePart))
+			return
+		parent = w.GetHandle()
+		for h in theming._nativeChildren(parent):
+			buf = ctypes.create_unicode_buffer(64)
+			_user32.GetClassNameW(h, buf, 64)
+			if buf.value != "Button":
+				continue
+			_user32.GetWindowTextW(h, buf, 64)
+			txt = buf.value
+			hdc = native._GetDC(h)
+			try:
+				brush = native._SendMessageW(_user32.GetParent(h), 0x0138, hdc, h)
+				tc = ctypes.windll.gdi32.GetTextColor(hdc) & 0xFFFFFF
+				bk = ctypes.windll.gdi32.GetBkColor(hdc) & 0xFFFFFF
+			finally:
+				native._ReleaseDC(h, hdc)
+			print("%#x %r style=%#x -> brush=%#x textColour=%#06x bk=%#06x" % (h, txt, _user32.GetWindowLongW(h, -16) & 0xFF, brush, tc, bk))
+
 	def v_welcome(self):
 		"""Open NVDA's Welcome dialog the way Help > Welcome does."""
 		from gui.startupDialogs import WelcomeDialog
