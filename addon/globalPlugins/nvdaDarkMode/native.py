@@ -321,7 +321,7 @@ def colorref(rgb):
 
 # --- Palette (RGB tuples). Tweak here. -------------------------------------
 BORDER = (0xC8, 0xC8, 0xC8)  # light grey frame around fields, lists, buttons
-FOCUS = (0xFF, 0xFF, 0xFF)  # 2px ring on the focused field / button
+FOCUS = (0x60, 0xCD, 0xFF)  # focus rings: the Windows 11 dark-mode accent blue, same as the check box glyphs
 FRAME_INNER = (0x2B, 0x2B, 0x2B)  # covers the theme's inner white line (matches field background)
 PARENT_BG = (0x20, 0x20, 0x20)  # dialog background, shows behind rounded button corners
 BTN_FACE = (0x33, 0x33, 0x33)
@@ -533,7 +533,9 @@ def _paintCheckItem(dis):
 	if oldFont:
 		_SelectObject(hdc, oldFont)
 	if dis.itemState & ODS_FOCUS and hasFocus:
-		_DrawFocusRect(hdc, ctypes.byref(rc))
+		ring = _CreateSolidBrush(colorref(FOCUS))
+		_FrameRect(hdc, ctypes.byref(rc), ring)
+		_DeleteObject(ring)
 	return True
 
 
