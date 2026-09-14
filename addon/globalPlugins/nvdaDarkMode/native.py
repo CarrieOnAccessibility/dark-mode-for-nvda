@@ -369,6 +369,7 @@ SWP_SHOWWINDOW = 0x0040
 RDW_ALLCHILDREN = 0x0080
 RDW_UPDATENOW = 0x0100
 WM_DARK_FRAME = 0x8000 + 0x37  # WM_APP + 0x37: "repaint our frame once everyone else is done"
+WM_DARK_RELAYOUT = 0x8000 + 0x38  # WM_APP + 0x38: "the dialog has been laid out; repaint it all"
 WM_QUERYUISTATE = 0x0129
 BM_GETSTATE = 0x00F2
 BM_GETIMAGE = 0x00F6
@@ -1260,9 +1261,18 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				# rest of this file) but the real painting would wait for the message loop,
 				# and NVDA spends ~100 ms announcing a new dialog first. Paint the whole tree
 				# now, inside the show call, so the first frame anyone sees is the finished one.
-				res = _DefSubclassProc(hwnd, msg, wParam, lParam)  # lets wx lay the dialog out
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 				_RedrawWindow(hwnd, None, None, RDW_UPDATENOW | RDW_ALLCHILDREN)
+				# wx lays many dialogs out only AFTER showing them (every control still sits at
+				# the top-left corner at this point), and Windows moves controls by copying
+				# their pixels, not repainting. So once the show call has returned and layout
+				# has run, repaint everything at its final place. Posted messages are handled
+				# before any WM_PAINT, so this still lands ahead of NVDA's announcing.
+				_user32.PostMessageW(hwnd, WM_DARK_RELAYOUT, 0, 0)
 				return res
+			if msg == WM_DARK_RELAYOUT:
+				_RedrawWindow(hwnd, None, None, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW)
+				return 0
 		elif idSubclass == ID_ERASE:
 			if msg == WM_ERASEBKGND:
 				# Some controls (list views, static boxes, gauges...) leave their background

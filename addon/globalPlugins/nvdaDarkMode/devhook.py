@@ -430,6 +430,10 @@ class DevHook:
 		wx.CallAfter(WelcomeDialog.run)
 		print("box trace running")
 
+	def v_mirror(self, _arg=""):
+		"""Open the Set NVDA Update Mirror dialog (Settings > General > Change...)."""
+		self.v_click("NVDA Settings", "Change...")
+
 	def v_welcome(self):
 		"""Open NVDA's Welcome dialog the way Help > Welcome does."""
 		from gui.startupDialogs import WelcomeDialog
@@ -628,6 +632,7 @@ class DevHook:
 
 	def v_probe(self, titlePart, types="ListCtrl,CheckListBox,ListBox,TreeCtrl,TextCtrl,Button,Notebook,CheckBox,RadioButton,StaticText,Choice"):
 		"""Report actual pixel colours (background, text-ish, left edge) of controls in a dialog."""
+		from . import native
 		from PIL import ImageGrab
 		from collections import Counter
 
@@ -653,7 +658,7 @@ class DevHook:
 				label = c.GetLabel()[:28]
 			except Exception:
 				label = ""
-			print(f"{type(c).__name__:14s} {label!r:32s} bg={bg} text={text} edge={edgeCols}")
+			print(f"{type(c).__name__:14s} {label!r:32s} bg={bg} text={text} edge={edgeCols} rect={(l, t, r - l, b - t)} best={tuple(c.GetBestSize())} size={tuple(c.GetSize())} style={_user32.GetWindowLongW(c.GetHandle(), -16) & 0xFFFFFFFF:#x} ex={_user32.GetWindowLongW(c.GetHandle(), -20) & 0xFFFFFFFF:#x} subclass={native._subclassed.get(c.GetHandle())} parent={type(c.GetParent()).__name__}")
 			seen += 1
 			if seen >= 40:
 				print("...")
