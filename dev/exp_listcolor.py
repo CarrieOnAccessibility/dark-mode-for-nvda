@@ -4,7 +4,7 @@ ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
 wd = threading.Timer(20, lambda: os._exit(3)); wd.daemon = True; wd.start()
 NVDA = r"C:\Program Files\NVDA"; HERE = os.path.dirname(os.path.abspath(__file__))
 os.add_dll_directory(NVDA); sys.path.insert(0, os.path.join(NVDA, "library.zip")); sys.path.insert(0, NVDA)
-sys.path.insert(0, os.path.abspath(os.path.join(HERE, "..", "addon", "globalPlugins", "nvdaDarkMode")))
+sys.path.insert(0, os.path.abspath(os.path.join(HERE, "..", "addon", "globalPlugins", "darkMode")))
 import wx
 import theming
 from PIL import ImageGrab

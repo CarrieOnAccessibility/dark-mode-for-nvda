@@ -1,15 +1,29 @@
-# NVDA Dark Mode (add-on)
+# Dark Mode for NVDA
 
-Makes NVDA's own interface dark: NVDA menu, Settings dialog, Add-on Store, message boxes, everything drawn by NVDA itself. Follows the Windows light/dark app setting by default, can be forced on or off, and turns itself off while a Windows High Contrast theme is active.
+Dark mode for NVDA's own user interface, including windows, dialogs, and menus. An NVDA add-on by [Carrie on Accessibility](https://apps.carrieonaccessibility.com).
 
-This folder is NOT part of the website. It is excluded from SFTP uploads (see `.vscode/sftp.json` ignore list). If the add-on is ever offered for download on apps.carrieonaccessibility.com, copy the built `.nvda-addon` file into a product folder under `apps/` and link it from there.
+NVDA has no dark mode of its own yet (NVDA issue #16683 is the one to watch). Until it does, this add-on asks Windows for the same dark treatment that File Explorer gets, and repaints the few pieces Windows will not. It changes only how NVDA's windows are painted, never what the controls are, so nothing NVDA announces changes.
+
+- Turn it off and on from the NVDA menu (Preferences > Dark mode), the Dark Mode settings category, or a command you assign under Input Gestures.
+- Steps aside automatically while a Windows High Contrast theme is active.
+- Needs NVDA 2026.1 or later; black title bars and the grey window outline need Windows 11.
+
+## Install
+
+Download the latest `darkMode-<version>.nvda-addon` from the Releases page and open it; NVDA asks to install it.
+
+## Licence
+
+Copyright (C) 2026 Carrie on Accessibility. Free software under the GNU General Public License, version 2 - see [LICENSE](LICENSE).
+
+## Development notes
 
 ## Layout
 
-- `addon/` - the add-on itself (what gets zipped). `manifest.ini` + `globalPlugins/nvdaDarkMode/`.
+- `addon/` - the add-on itself (what gets zipped). `manifest.ini` + `globalPlugins/darkMode/`.
   - `theming.py` - the engine: Windows dark-mode switches + wx recolouring. Read its header comment before changing anything; it explains the one accessibility rule that must never be broken (never set text colour on checkboxes/radio buttons/buttons).
   - `__init__.py` - NVDA plumbing: settings category, toggle command, config.
-- `build.py` - `python build.py` writes `dist/nvdaDarkMode-<version>.nvda-addon`. `python build.py --install` also copies the add-on into `%APPDATA%\nvda\addons\` for testing (restart NVDA after).
+- `build.py` - `python build.py` writes `dist/darkMode-<version>.nvda-addon`. `python build.py --install` also copies the add-on into `%APPDATA%\nvda\addons\` for testing (restart NVDA after).
 - `dev/testbench.py` - opens a fake "NVDA Settings" dialog using NVDA's own bundled wxPython (no NVDA needed), applies the engine, saves screenshots to `dev/shots/`. Fastest way to check a change visually. `--light` gives the untouched baseline.
 - `dev/shoot_nvda.py` - screenshots the running NVDA's windows. Sends NVDA keyboard shortcuts by injecting keystrokes, which only lands in NVDA's dialogs if they have focus; use with care.
 - `dev/flashcap.py` - films the screen centre at ~60 fps from outside NVDA and reports how bright each frame was, to catch flashes when the NVDA menu opens. `python dev/flashcap.py NAME` pops the menu through the dev hook; `--wait 60` films while you open it yourself with NVDA+N. Filming from inside NVDA slows NVDA down and distorts what you're measuring, which is why this is a separate process.

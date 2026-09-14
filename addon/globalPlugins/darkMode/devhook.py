@@ -1,3 +1,7 @@
+# Dark Mode: an NVDA add-on. Copyright (C) 2026 Carrie on Accessibility.
+# This program is free software: you can redistribute it and/or modify it under the terms of
+# the GNU General Public License as published by the Free Software Foundation, version 2.
+# See the LICENSE file for details.
 # DEVELOPMENT ONLY. Not shipped: build.py excludes this file from the package.
 #
 # Lets dev/nvda_exec.py ask the live NVDA to open its own dialogs, screenshot
@@ -6,7 +10,7 @@
 # general "run code" hook: only the fixed verbs below, screenshots only ever
 # land in this add-on's own dev/shots folder.
 #
-# Protocol: dev/nvda_exec.py writes %TEMP%\nvdaDarkMode-dev\cmd.txt with one
+# Protocol: dev/nvda_exec.py writes %TEMP%\darkMode-dev\cmd.txt with one
 # line "verb arg1|arg2|..."; a timer here runs it and writes result.txt.
 
 import ctypes
@@ -18,7 +22,7 @@ import traceback
 import wx
 from logHandler import log
 
-CMD_DIR = os.path.join(os.environ.get("TEMP", "."), "nvdaDarkMode-dev")
+CMD_DIR = os.path.join(os.environ.get("TEMP", "."), "darkMode-dev")
 CMD = os.path.join(CMD_DIR, "cmd.txt")
 RESULT = os.path.join(CMD_DIR, "result.txt")
 # Screenshots go here and nowhere else: the project's dev/shots folder, whose
@@ -130,7 +134,7 @@ class DevHook:
 		self.timer = wx.Timer()
 		self.timer.Bind(wx.EVT_TIMER, self._poll)
 		self.timer.Start(300)
-		log.info("nvdaDarkMode: dev hook active (fixed verbs), shots -> %s" % SHOTS_DIR)
+		log.info("darkMode: dev hook active (fixed verbs), shots -> %s" % SHOTS_DIR)
 
 	def stop(self):
 		self.timer.Stop()
@@ -436,7 +440,7 @@ class DevHook:
 
 	def v_mode(self, mode="dark"):
 		"""Set the add-on mode (dark|off) and apply it, like the settings panel does."""
-		import globalPlugins.nvdaDarkMode as pkg
+		import globalPlugins.darkMode as pkg
 
 		pkg.setMode(mode)
 		print("mode", mode, "-> active", self.plugin.engine.active)

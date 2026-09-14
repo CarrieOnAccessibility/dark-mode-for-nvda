@@ -1,4 +1,8 @@
-"""Package the add-on: python build.py  ->  dist/nvdaDarkMode-<version>.nvda-addon
+# Dark Mode: an NVDA add-on. Copyright (C) 2026 Carrie on Accessibility.
+# This program is free software: you can redistribute it and/or modify it under the terms of
+# the GNU General Public License as published by the Free Software Foundation, version 2.
+# See the LICENSE file for details.
+"""Package the add-on: python build.py  ->  dist/darkMode-<version>.nvda-addon
 
 Also: python build.py --install   copies the add-on into the running user's NVDA
 add-ons folder for development testing (restart NVDA afterwards).
@@ -31,7 +35,7 @@ def _rawVersion() -> str:
 
 def build() -> str:
 	os.makedirs(DIST, exist_ok=True)
-	out = os.path.join(DIST, f"nvdaDarkMode-{_rawVersion()}.nvda-addon")
+	out = os.path.join(DIST, f"darkMode-{_rawVersion()}.nvda-addon")
 	with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
 		for root, dirs, files in os.walk(ADDON):
 			dirs[:] = [d for d in dirs if d != "__pycache__"]
@@ -45,12 +49,12 @@ def build() -> str:
 
 
 def install():
-	target = os.path.join(os.environ["APPDATA"], "nvda", "addons", "nvdaDarkMode")
+	target = os.path.join(os.environ["APPDATA"], "nvda", "addons", "darkMode")
 	if os.path.isdir(target):
 		shutil.rmtree(target)
 	shutil.copytree(ADDON, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 	# Tell the dev hook where this project's screenshot folder is.
-	with open(os.path.join(target, "globalPlugins", "nvdaDarkMode", "dev_shots_dir.txt"), "w", encoding="utf-8") as f:
+	with open(os.path.join(target, "globalPlugins", "darkMode", "dev_shots_dir.txt"), "w", encoding="utf-8") as f:
 		f.write(os.path.join(HERE, "dev", "shots"))
 	print("installed to", target, "- restart NVDA")
 

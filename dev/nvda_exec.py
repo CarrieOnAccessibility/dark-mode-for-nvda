@@ -10,7 +10,7 @@ import os
 import sys
 import time
 
-CMD_DIR = os.path.join(os.environ["TEMP"], "nvdaDarkMode-dev")
+CMD_DIR = os.path.join(os.environ["TEMP"], "darkMode-dev")
 CMD = os.path.join(CMD_DIR, "cmd.txt")
 RESULT = os.path.join(CMD_DIR, "result.txt")
 os.makedirs(CMD_DIR, exist_ok=True)

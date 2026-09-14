@@ -17,7 +17,7 @@ _wd.start()
 
 NVDA_DIR = r"C:\Program Files\NVDA"
 HERE = os.path.dirname(os.path.abspath(__file__))
-ADDON_PLUGIN_DIR = os.path.join(HERE, "..", "addon", "globalPlugins", "nvdaDarkMode")
+ADDON_PLUGIN_DIR = os.path.join(HERE, "..", "addon", "globalPlugins", "darkMode")
 os.add_dll_directory(NVDA_DIR)
 sys.path.insert(0, os.path.join(NVDA_DIR, "library.zip"))
 sys.path.insert(0, NVDA_DIR)

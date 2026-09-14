@@ -31,7 +31,7 @@ own account does both:
 3. DECIDE THE PUBLIC DETAILS
 ----------------------------
 These appear in the store for everyone, so they are your call:
-   - Display name: "NVDA Dark Mode" (current). Keep or change?
+   - Display name: "Dark Mode" (current). Keep or change?
    - Author name as shown: "Carrie on Accessibility" (current). Keep or change?
    - Contact email for the submission form (required by NV Access; not shown
      publicly in the store but they will use it to reach you about reviews).

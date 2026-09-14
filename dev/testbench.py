@@ -23,7 +23,7 @@ _wd.start()
 
 NVDA_DIR = r"C:\Program Files\NVDA"
 HERE = os.path.dirname(os.path.abspath(__file__))
-ADDON_PLUGIN_DIR = os.path.join(HERE, "..", "addon", "globalPlugins", "nvdaDarkMode")
+ADDON_PLUGIN_DIR = os.path.join(HERE, "..", "addon", "globalPlugins", "darkMode")
 
 os.add_dll_directory(NVDA_DIR)
 sys.path.insert(0, os.path.join(NVDA_DIR, "library.zip"))
@@ -135,7 +135,7 @@ class FakeSettings(wx.Dialog):
 		tree = wx.TreeCtrl(panel, size=panel.FromDIP(wx.Size(220, 90)), style=wx.TR_HAS_BUTTONS | wx.TR_DEFAULT_STYLE)
 		root = tree.AddRoot("Add-ons")
 		a = tree.AppendItem(root, "Installed")
-		tree.AppendItem(a, "NVDA Dark Mode")
+		tree.AppendItem(a, "Dark Mode")
 		tree.AppendItem(a, "Eloquence")
 		tree.AppendItem(root, "Available")
 		tree.ExpandAll()

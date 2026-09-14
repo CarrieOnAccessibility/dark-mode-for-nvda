@@ -1,3 +1,7 @@
+# Dark Mode: an NVDA add-on. Copyright (C) 2026 Carrie on Accessibility.
+# This program is free software: you can redistribute it and/or modify it under the terms of
+# the GNU General Public License as published by the Free Software Foundation, version 2.
+# See the LICENSE file for details.
 # Win32 painting helpers for the dark mode engine.
 #
 # Two things Windows' dark theme gets wrong for us are fixed here by
@@ -28,7 +32,7 @@ try:
 except ImportError:
 	import logging
 
-	log = logging.getLogger("nvdaDarkMode")
+	log = logging.getLogger("darkMode")
 
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
 _gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
@@ -1470,7 +1474,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				_InvalidateRect(hwnd, None, False)
 				return res
 	except Exception:
-		log.exception("nvdaDarkMode: paint hook failed")
+		log.exception("darkMode: paint hook failed")
 	return _DefSubclassProc(hwnd, msg, wParam, lParam)
 
 
@@ -1731,7 +1735,7 @@ def _cbt(code, wParam, lParam):
 			elif buf.value == TOOLTIP_CLASS:
 				themeTooltip(wParam, True)
 	except Exception:
-		log.exception("nvdaDarkMode: menu hook failed")
+		log.exception("darkMode: menu hook failed")
 	return _CallNextHookEx(_menuHook, code, wParam, lParam)
 
 
@@ -1745,7 +1749,7 @@ def installMenuHook():
 		return
 	_menuHook = _SetWindowsHookExW(WH_CBT, _cbtProc, None, ctypes.windll.kernel32.GetCurrentThreadId())
 	if not _menuHook:
-		log.warning("nvdaDarkMode: could not install the popup menu hook (error %d)" % ctypes.get_last_error())
+		log.warning("darkMode: could not install the popup menu hook (error %d)" % ctypes.get_last_error())
 
 
 def removeMenuHook():

@@ -1,3 +1,7 @@
+# Dark Mode: an NVDA add-on. Copyright (C) 2026 Carrie on Accessibility.
+# This program is free software: you can redistribute it and/or modify it under the terms of
+# the GNU General Public License as published by the Free Software Foundation, version 2.
+# See the LICENSE file for details.
 # Dark mode engine for the NVDA wxPython interface.
 #
 # NVDA draws its windows with wxPython 4.2 (wxWidgets 3.2), which has no dark
@@ -34,7 +38,7 @@ try:
 except ImportError:  # running outside NVDA (test bench)
 	import logging
 
-	log = logging.getLogger("nvdaDarkMode")
+	log = logging.getLogger("darkMode")
 
 # --- Palette ----------------------------------------------------------------
 # Windows 11 dark: app background #202020, raised surfaces #2b2b2b, text white.
@@ -539,7 +543,7 @@ class DarkModeEngine:
 		try:
 			return bool(self._wantDark())
 		except Exception:
-			log.exception("nvdaDarkMode: wantDark callback failed")
+			log.exception("darkMode: wantDark callback failed")
 			return False
 
 	def start(self):
@@ -570,7 +574,7 @@ class DarkModeEngine:
 		if dark == self._active:
 			return
 		self._active = dark
-		log.info("nvdaDarkMode: %s dark mode" % ("enabling" if dark else "disabling"))
+		log.info("darkMode: %s dark mode" % ("enabling" if dark else "disabling"))
 		setProcessDark(dark)
 		themeAllWindows(dark)
 		if dark:
@@ -581,7 +585,7 @@ class DarkModeEngine:
 			try:
 				self.onStateChanged()
 			except Exception:
-				log.exception("nvdaDarkMode: state change callback failed")
+				log.exception("darkMode: state change callback failed")
 
 	def _onWindowDestroy(self, event):
 		event.Skip()
@@ -605,7 +609,7 @@ class DarkModeEngine:
 		try:
 			themeWindow(win, True)
 		except Exception:
-			log.exception("nvdaDarkMode: failed to theme new window")
+			log.exception("darkMode: failed to theme new window")
 		# Second pass once construction has finished. Over the whole top-level window, not
 		# this object: during creation wxPython may hand us a throwaway wrapper (the real
 		# one is registered when the constructor returns), and anything that has to keep
@@ -629,7 +633,7 @@ class DarkModeEngine:
 		except RuntimeError:
 			pass  # the window was destroyed before we got here
 		except Exception:
-			log.exception("nvdaDarkMode: failed to re-theme window tree")
+			log.exception("darkMode: failed to re-theme window tree")
 
 	def _reapply(self, win):
 		if not self._active:
@@ -637,7 +641,7 @@ class DarkModeEngine:
 		try:
 			themeWindow(win, True, force=True)
 		except Exception:
-			log.exception("nvdaDarkMode: failed to re-theme window")
+			log.exception("darkMode: failed to re-theme window")
 
 	def _onShow(self, event):
 		event.Skip()
@@ -647,11 +651,11 @@ class DarkModeEngine:
 		try:
 			themeTree(win, True, force=True)
 		except Exception:
-			log.exception("nvdaDarkMode: failed to theme shown window")
+			log.exception("darkMode: failed to theme shown window")
 
 	def _onPoll(self, event):
 		try:
 			pruneStates()
 			self.refresh()
 		except Exception:
-			log.exception("nvdaDarkMode: poll failed")
+			log.exception("darkMode: poll failed")

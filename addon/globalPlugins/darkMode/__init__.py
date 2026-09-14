@@ -1,4 +1,8 @@
-# NVDA Dark Mode add-on: global plugin entry point.
+# Dark Mode: an NVDA add-on. Copyright (C) 2026 Carrie on Accessibility.
+# This program is free software: you can redistribute it and/or modify it under the terms of
+# the GNU General Public License as published by the Free Software Foundation, version 2.
+# See the LICENSE file for details.
+# Dark Mode add-on for NVDA: global plugin entry point.
 #
 # Wires the theming engine (see theming.py) into NVDA: starts it at load,
 # adds a "Dark Mode" category to NVDA's Settings dialog, a check item in the
@@ -28,7 +32,7 @@ try:
 except Exception:  # not running from an installed add-on (e.g. scratchpad)
 	pass
 
-CONF_SECTION = "nvdaDarkMode"
+CONF_SECTION = "darkMode"
 config.conf.spec[CONF_SECTION] = {
 	"mode": "option('dark', 'off', default='dark')",
 	"restartWhenOff": "boolean(default=True)",
@@ -57,7 +61,7 @@ def saveConfig():
 	try:
 		config.conf.save()
 	except Exception:
-		log.debugWarning("nvdaDarkMode: could not save config", exc_info=True)
+		log.debugWarning("darkMode: could not save config", exc_info=True)
 
 
 def restartNVDA():
@@ -116,11 +120,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		try:
 			self._addMenuItem()
 		except Exception:
-			log.exception("nvdaDarkMode: could not add the menu item")
+			log.exception("darkMode: could not add the menu item")
 		try:
 			self.engine.start()
 		except Exception:
-			log.exception("nvdaDarkMode: engine failed to start")
+			log.exception("darkMode: engine failed to start")
 		self._syncMenuItem()
 		self._devhook = devhook.DevHook(self) if devhook else None
 
@@ -141,7 +145,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		try:
 			gui.mainFrame.sysTrayIcon.preferencesMenu.Remove(self._menuItem)
 		except Exception:
-			log.debugWarning("nvdaDarkMode: could not remove the menu item", exc_info=True)
+			log.debugWarning("darkMode: could not remove the menu item", exc_info=True)
 		self._menuItem = None
 
 	def _syncMenuItem(self):
@@ -176,7 +180,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self.engine.onStateChanged = None
 			self.engine.stop(restore=not exiting)
 		except Exception:
-			log.exception("nvdaDarkMode: engine failed to stop cleanly")
+			log.exception("darkMode: engine failed to stop cleanly")
 		GlobalPlugin.instance = None
 		super().terminate()
 
