@@ -1,0 +1,4 @@
+dev/shots/
+__pycache__/
+*.pyc
+addon/globalPlugins/darkMode/dev_shots_dir.txt
