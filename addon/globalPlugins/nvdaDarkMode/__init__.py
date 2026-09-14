@@ -31,7 +31,7 @@ except Exception:  # not running from an installed add-on (e.g. scratchpad)
 CONF_SECTION = "nvdaDarkMode"
 config.conf.spec[CONF_SECTION] = {
 	"mode": "option('dark', 'off', default='dark')",
-	"restartPrompt": "boolean(default=True)",
+	"restartWhenOff": "boolean(default=True)",
 }
 
 
@@ -41,70 +41,26 @@ def wantDark() -> bool:
 
 
 def setMode(mode: str):
-	"""Store a mode and apply it live. Turning off also suggests an NVDA restart: open
+	"""Store a mode and apply it live. Turning off restarts NVDA if that option is on: open
 	windows are put back in place, but a fresh start is the one true native state."""
 	plugin = GlobalPlugin.instance
 	wasActive = bool(plugin and plugin.engine.active)
 	config.conf[CONF_SECTION]["mode"] = mode
 	if plugin:
 		plugin.engine.refresh()
-	if mode == "off" and wasActive and config.conf[CONF_SECTION]["restartPrompt"]:
-		wx.CallAfter(offerRestart)
+	if mode == "off" and wasActive and config.conf[CONF_SECTION]["restartWhenOff"]:
+		wx.CallAfter(restartNVDA)
 
 
-class RestartPromptDialog(wx.Dialog):
-	"""Shown after dark mode is turned off: Restart now / Later, plus "don't show again"."""
-
-	def __init__(self, parent):
-		# Translators: title of the dialog shown after turning dark mode off.
-		super().__init__(parent, title=_("NVDA Dark Mode"))
-		mainSizer = wx.BoxSizer(wx.VERTICAL)
-		sHelper = guiHelper.BoxSizerHelper(self, orientation=wx.VERTICAL)
-		text = wx.StaticText(
-			self,
-			# Translators: message of the dialog shown after turning dark mode off.
-			label=_(
-				"Dark mode is now off. It's best to restart NVDA, so that every window "
-				"comes back exactly in NVDA's own colours."
-			),
-		)
-		text.Wrap(self.FromDIP(420))
-		sHelper.addItem(text)
-		# Translators: label of the check box in the restart dialog.
-		self.dontShowCheckBox = sHelper.addItem(wx.CheckBox(self, label=_("&Don't show this again")))
-		buttons = guiHelper.ButtonHelper(wx.HORIZONTAL)
-		# Translators: button in the restart dialog.
-		restartButton = buttons.addButton(self, id=wx.ID_OK, label=_("&Restart now"))
-		# Translators: button in the restart dialog.
-		buttons.addButton(self, id=wx.ID_CANCEL, label=_("&Later"))
-		sHelper.addDialogDismissButtons(buttons)
-		mainSizer.Add(sHelper.sizer, border=guiHelper.BORDER_FOR_DIALOGS, flag=wx.ALL)
-		self.SetSizerAndFit(mainSizer)
-		restartButton.SetDefault()
-		self.SetEscapeId(wx.ID_CANCEL)
-		self.CentreOnScreen()
-
-
-def offerRestart():
-	gui.mainFrame.prePopup()
-	try:
-		dlg = RestartPromptDialog(gui.mainFrame)
-		result = dlg.ShowModal()
-		dontShow = dlg.dontShowCheckBox.IsChecked()
-		dlg.Destroy()
-	finally:
-		gui.mainFrame.postPopup()
-	if dontShow:
-		config.conf[CONF_SECTION]["restartPrompt"] = False
+def restartNVDA():
 	try:
 		config.conf.save()
 	except Exception:
-		log.debugWarning("nvdaDarkMode: could not save config", exc_info=True)
-	if result == wx.ID_OK:
-		import core
-		import queueHandler
+		log.debugWarning("nvdaDarkMode: could not save config before restart", exc_info=True)
+	import core
+	import queueHandler
 
-		queueHandler.queueFunction(queueHandler.eventQueue, core.restart)
+	queueHandler.queueFunction(queueHandler.eventQueue, core.restart)
 
 
 class DarkModeSettingsPanel(SettingsPanel):
@@ -117,26 +73,24 @@ class DarkModeSettingsPanel(SettingsPanel):
 		# Translators: label of the check box that turns NVDA's dark mode on or off.
 		self.enabledCheckBox = sHelper.addItem(wx.CheckBox(self, label=_("&Dark mode for NVDA's windows and menus")))
 		self.enabledCheckBox.SetValue(config.conf[CONF_SECTION]["mode"] != "off")
-		self.restartPromptCheckBox = sHelper.addItem(
-			# Translators: label of the check box controlling the restart suggestion after turning dark mode off.
-			wx.CheckBox(self, label=_("&Suggest restarting NVDA when dark mode is turned off"))
+		self.restartCheckBox = sHelper.addItem(
+			# Translators: label of the check box that makes NVDA restart when dark mode is turned off.
+			wx.CheckBox(self, label=_("&Restart NVDA when dark mode is turned off"))
 		)
-		self.restartPromptCheckBox.SetValue(bool(config.conf[CONF_SECTION]["restartPrompt"]))
+		self.restartCheckBox.SetValue(bool(config.conf[CONF_SECTION]["restartWhenOff"]))
 		note = wx.StaticText(
 			self,
 			# Translators: explanatory text shown in the Dark Mode settings category.
 			label=_(
-				"Takes effect when you press OK or Apply. "
-				"Dark mode can also be toggled from the NVDA menu (Preferences > Dark mode) "
-				"or with a command you assign under Input Gestures, in the Dark Mode category. "
-				"It switches itself off while a Windows High Contrast theme is active."
+				"Also in the NVDA menu under Preferences, and as a command in Input Gestures. "
+				"Off automatically while Windows High Contrast is on."
 			),
 		)
 		note.Wrap(self.scaleSize(500))
 		sHelper.addItem(note)
 
 	def onSave(self):
-		config.conf[CONF_SECTION]["restartPrompt"] = self.restartPromptCheckBox.IsChecked()
+		config.conf[CONF_SECTION]["restartWhenOff"] = self.restartCheckBox.IsChecked()
 		setMode("dark" if self.enabledCheckBox.IsChecked() else "off")
 
 

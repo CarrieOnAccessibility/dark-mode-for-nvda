@@ -14,7 +14,7 @@
 <li><strong>NVDA menu &gt; Preferences &gt; Settings &gt; Dark Mode</strong>: the check box <strong>Dark mode for NVDA's windows and menus</strong>. Like every NVDA setting, it takes effect when you press OK or Apply.</li>
 <li>A command called <strong>Toggles dark mode for NVDA's windows and menus</strong> in NVDA's Input Gestures dialog, under the <strong>Dark Mode</strong> category. It has no key assigned by default.</li>
 </ul>
-<p>Turning dark mode off puts open windows back to their normal colours straight away, then suggests restarting NVDA (Restart now / Later), because a fresh start guarantees that everything is exactly as NVDA draws it on its own. Tick <strong>Don't show this again</strong> to stop the suggestion; the Dark Mode settings category can turn it back on. Dark mode also switches itself off while a Windows High Contrast theme is active, so it never fights your contrast theme.</p>
+<p>Turning dark mode off restarts NVDA, so that everything comes back exactly as NVDA draws it on its own. Untick <strong>Restart NVDA when dark mode is turned off</strong> in the Dark Mode settings category if you would rather it just switched off in place. Dark mode also switches itself off while a Windows High Contrast theme is active.</p>
 <h2>How it works, and its limits</h2>
 <p>NVDA's interface is drawn by a toolkit (wxPython) that has no dark mode of its own, so this add-on asks Windows directly, using the same unofficial switches File Explorer and other apps use. Most of the interface goes dark. A few pieces Windows draws itself stay light, for example the small progress box shown while checking for updates. When NVDA gains built-in dark mode, this add-on can be retired.</p>
 </body>
