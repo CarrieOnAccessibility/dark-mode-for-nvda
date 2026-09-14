@@ -381,6 +381,7 @@ PARENT_BG = (0x20, 0x20, 0x20)  # dialog background, shows behind rounded button
 GRIP_DOT = (0x62, 0x62, 0x62)  # size grip dots: visible if you look for them, nothing more
 LAYOUT_LINE = (0x8C, 0x8C, 0x8C)  # structure, not controls: panel frames, group boxes, separators, under the title bar
 SLIDER_TRACK = (0x8C, 0x8C, 0x8C)  # the groove a slider thumb runs in (the thumb itself is left to Windows)
+TITLE_SEPARATOR = (0x70, 0x70, 0x70)  # the line where the title bar meets the dialog: a step darker than the layout lines
 MENU_BG = (0x2C, 0x2C, 0x2C)  # what Windows paints dark popup menus with (measured); used only for the erase
 BTN_FACE = (0x33, 0x33, 0x33)
 BTN_HOT = (0x50, 0x50, 0x50)  # hover: clearly lighter than the face
@@ -649,7 +650,7 @@ def _drawTitleSeparator(hwnd, hdc):
 	dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
 	t = max(1, round(dpi / 96))
 	r = RECT(0, 0, rc.right, min(rc.bottom, t))
-	line = _CreateSolidBrush(colorref(LAYOUT_LINE))
+	line = _CreateSolidBrush(colorref(TITLE_SEPARATOR))
 	_FillRect(hdc, ctypes.byref(r), line)
 	_DeleteObject(line)
 
