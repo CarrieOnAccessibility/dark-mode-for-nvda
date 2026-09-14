@@ -129,8 +129,12 @@ APPMODE_FORCE_LIGHT = 3
 DWMWA_USE_IMMERSIVE_DARK_MODE = 20 if WIN_BUILD >= 19041 else 19
 # Windows 11 lets an app pick its own window border colour.
 DWMWA_BORDER_COLOR = 34
+DWMWA_CAPTION_COLOR = 35
+DWMWA_TEXT_COLOR = 36
 DWMWA_COLOR_DEFAULT = 0xFFFFFFFF
 WINDOW_BORDER = wx.Colour(0xC8, 0xC8, 0xC8)  # light grey ring around every NVDA dialog
+TITLE_BG = wx.Colour(0x00, 0x00, 0x00)  # title bars: black (Windows 11 only; older builds keep the dark-mode grey)
+TITLE_FG = wx.Colour(0xFF, 0xFF, 0xFF)
 
 
 # --- System state -----------------------------------------------------------
@@ -175,8 +179,13 @@ def _setTitleBarDark(hwnd, dark: bool):
 	value = wintypes.BOOL(1 if dark else 0)
 	_DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(value), ctypes.sizeof(value))
 	if WIN_BUILD >= 22000:
-		border = wintypes.DWORD(_colorref(WINDOW_BORDER) if dark else DWMWA_COLOR_DEFAULT)
-		_DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ctypes.byref(border), ctypes.sizeof(border))
+		for attr, colour in (
+			(DWMWA_BORDER_COLOR, WINDOW_BORDER),
+			(DWMWA_CAPTION_COLOR, TITLE_BG),
+			(DWMWA_TEXT_COLOR, TITLE_FG),
+		):
+			value = wintypes.DWORD(_colorref(colour) if dark else DWMWA_COLOR_DEFAULT)
+			_DwmSetWindowAttribute(hwnd, attr, ctypes.byref(value), ctypes.sizeof(value))
 	if _AllowDarkModeForWindow:
 		_AllowDarkModeForWindow(hwnd, dark)
 
@@ -296,6 +305,11 @@ def _applyDark(win, hwnd):
 		native.applyButton(hwnd, True)
 	if isinstance(win, wx.Notebook):
 		native.applyTabs(hwnd, True)
+	# These paint their background only at WM_PAINT and showed white until then.
+	if isinstance(win, (wx.ListCtrl, wx.ComboBox, wx.Gauge)):
+		native.applyEraseBase(hwnd, native.LIST_BG, True)
+	elif isinstance(win, (wx.StaticBox, wx.RadioBox)):
+		native.applyEraseBase(hwnd, native.PARENT_BG, True)
 	if isinstance(win, wx.ListCtrl):
 		header = _SendMessage(hwnd, LVM_GETHEADER, 0, 0)
 		if header:
@@ -305,6 +319,7 @@ def _applyDark(win, hwnd):
 			_setWindowTheme(child, "DarkMode_Explorer")
 	if isinstance(win, wx.TopLevelWindow):
 		_setTitleBarDark(hwnd, True)
+		native.applyShowPaint(hwnd, True)
 		for grip in native.sizeGrips(hwnd):
 			native.applyGrip(grip, True)
 
@@ -343,6 +358,8 @@ def _restoreLight(win, hwnd, state):
 		native.applyButton(hwnd, False)
 	if isinstance(win, wx.Notebook):
 		native.applyTabs(hwnd, False)
+	if isinstance(win, (wx.ListCtrl, wx.ComboBox, wx.Gauge, wx.StaticBox, wx.RadioBox)):
+		native.applyEraseBase(hwnd, None, False)
 	if isinstance(win, wx.ListCtrl):
 		header = _SendMessage(hwnd, LVM_GETHEADER, 0, 0)
 		if header:
@@ -352,6 +369,7 @@ def _restoreLight(win, hwnd, state):
 			_setWindowTheme(child, None)
 	if isinstance(win, wx.TopLevelWindow):
 		_setTitleBarDark(hwnd, False)
+		native.applyShowPaint(hwnd, False)
 		for grip in native.sizeGrips(hwnd):
 			native.applyGrip(grip, False)
 

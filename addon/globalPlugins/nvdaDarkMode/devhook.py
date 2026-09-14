@@ -236,6 +236,96 @@ class DevHook:
 			native.installMenuHook()
 		print("menu hook", "installed" if native._menuHook else "removed")
 
+	def v_painttrace(self, verb="settings", arg="general", name="painttrace"):
+		"""Open a dialog while logging, per created window: creation time, whether its parent
+		was already on screen, first WM_ERASEBKGND / WM_PAINT / WM_CTLCOLOR* times, and when
+		the engine's deferred re-theme ran. Answers "what painted light before we got to it?"."""
+		import time
+		from ctypes import wintypes
+
+		comctl32 = ctypes.windll.comctl32
+		SUBCLASSPROC = ctypes.WINFUNCTYPE(
+			ctypes.c_ssize_t, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM, ctypes.c_size_t, ctypes.c_size_t
+		)
+		_Def = comctl32.DefSubclassProc
+		_Def.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+		_Def.restype = ctypes.c_ssize_t
+		_Set = comctl32.SetWindowSubclass
+		_Set.argtypes = (wintypes.HWND, SUBCLASSPROC, ctypes.c_size_t, ctypes.c_size_t)
+		_Rem = comctl32.RemoveWindowSubclass
+		_Rem.argtypes = (wintypes.HWND, SUBCLASSPROC, ctypes.c_size_t)
+		t0 = time.perf_counter()
+		lines = []
+		seen = {}  # hwnd -> set of msgs already logged
+		names = {}
+		CTLCOLOR = {0x0133: "CTLCOLOREDIT", 0x0134: "CTLCOLORLISTBOX", 0x0135: "CTLCOLORBTN", 0x0138: "CTLCOLORSTATIC"}
+		WATCH = {0x0014: "ERASEBKGND", 0x000F: "PAINT", 0x0018: "SHOWWINDOW", 0x0085: "NCPAINT", 0x031A: "THEMECHANGED"}
+
+		def now():
+			return time.perf_counter() - t0
+
+		def sub(hwnd, msg, wParam, lParam, uId, ref):
+			try:
+				label = WATCH.get(msg) or CTLCOLOR.get(msg)
+				if label and label not in seen.setdefault(hwnd, set()):
+					seen[hwnd].add(label)
+					extra = ""
+					if msg in CTLCOLOR:
+						extra = " for=%#x" % lParam
+					lines.append("%7.1f ms  %-22s %s%s" % (now() * 1000, names.get(hwnd, "%#x" % hwnd), label, extra))
+				if msg == 0x0082:  # NCDESTROY
+					_Rem(hwnd, subProc, 98)
+			except Exception:
+				log.exception("painttrace sub")
+			return _Def(hwnd, msg, wParam, lParam)
+
+		subProc = SUBCLASSPROC(sub)
+		self._keep = [subProc]
+
+		def onCreate(evt):
+			evt.Skip()
+			w = evt.GetWindow()
+			try:
+				h = w.GetHandle()
+				parent = w.GetParent()
+				pshown = parent.IsShownOnScreen() if parent else None
+				label = "%s[%s]" % (type(w).__name__, (w.GetLabel() or "")[:18].replace("\n", " ")) if hasattr(w, "GetLabel") else type(w).__name__
+				names[h] = label
+				lines.append("%7.1f ms  %-22s CREATED parentOnScreen=%s" % (now() * 1000, label, pshown))
+				_Set(h, subProc, 98, 0)
+				# the parent gets WM_CTLCOLOR* for this child; watch the parent too
+				if parent and parent.GetHandle() not in names:
+					names[parent.GetHandle()] = "%s(parent)" % type(parent).__name__
+					_Set(parent.GetHandle(), subProc, 98, 0)
+			except Exception:
+				log.exception("painttrace create")
+
+		engine = self.plugin.engine
+		origReapply = engine._reapply
+
+		def tracedReapply(win):
+			try:
+				lines.append("%7.1f ms  %-22s REAPPLY (deferred re-theme)" % (now() * 1000, names.get(win.GetHandle(), type(win).__name__)))
+			except Exception:
+				pass
+			return origReapply(win)
+
+		engine._reapply = tracedReapply
+		app = wx.GetApp()
+		app.Bind(wx.EVT_WINDOW_CREATE, onCreate)
+
+		def finish():
+			app.Unbind(wx.EVT_WINDOW_CREATE, handler=onCreate)
+			engine._reapply = origReapply
+			os.makedirs(SHOTS_DIR, exist_ok=True)
+			with open(_shotPath(name + ".txt").replace(".png", ""), "w", encoding="utf-8") as f:
+				f.write("\n".join(lines))
+			log.info("painttrace: %d lines" % len(lines))
+
+		self._later = wx.CallLater(4000, finish)
+		lines.append("%7.1f ms  opening %s %s" % (now() * 1000, verb, arg))
+		getattr(self, "v_" + verb)(arg)
+
 	def v_menutrace(self, name="menutrace"):
 		"""Pop the NVDA menu with a thread-local CBT hook that subclasses the popup menu
 		window (#32768) and logs every message it gets, with timestamps, to dev/shots/<name>.txt."""

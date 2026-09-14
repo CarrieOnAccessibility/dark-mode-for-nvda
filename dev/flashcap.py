@@ -25,8 +25,13 @@ from PIL import Image  # noqa: E402  (NVDA's bundled PIL)
 
 #   python dev/flashcap.py NAME            films 2.2 s and pops the menu through the dev hook
 #   python dev/flashcap.py NAME --wait S   films S seconds; the user opens the menu with NVDA+N
+#   python dev/flashcap.py NAME --verb "settings general" --full   films the whole screen while the
+#                                                                    hook opens something else
 name = sys.argv[1] if len(sys.argv) > 1 else "flash"
 wait = float(sys.argv[sys.argv.index("--wait") + 1]) if "--wait" in sys.argv else 0
+verb = sys.argv[sys.argv.index("--verb") + 1] if "--verb" in sys.argv else "menupop"
+full = "--full" in sys.argv
+seconds = float(sys.argv[sys.argv.index("--seconds") + 1]) if "--seconds" in sys.argv else 2.2
 user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
 gdi32.CreateCompatibleDC.restype = ctypes.c_void_p
@@ -43,9 +48,13 @@ user32.ReleaseDC.argtypes = (wintypes.HWND, ctypes.c_void_p)
 
 sw, sh = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
 cx, cy = sw // 2, sh // 2
-L, T = max(0, cx - 300), max(0, cy - 300)
-R, B = min(sw, cx + 1100), min(sh, cy + 1300)
+if full:
+	L, T, R, B = 0, 0, sw, sh
+else:
+	L, T = max(0, cx - 300), max(0, cy - 300)
+	R, B = min(sw, cx + 1100), min(sh, cy + 1300)
 W, H = R - L, B - T
+REDUCE = 8 if full else 4
 
 
 class BITMAPINFOHEADER(ctypes.Structure):
@@ -74,7 +83,7 @@ def capture(seconds, frames):
 		t = time.perf_counter() - t0
 		img = Image.frombuffer("RGB", (W, H), ctypes.string_at(bits, size), "raw", "BGRX", 0, 1)
 		# brightness on a 4x-reduced copy: fast, still catches a light rectangle
-		light = img.reduce(4).convert("L").point(lambda v: 255 if v > 200 else 0).histogram()[255] * 16
+		light = img.reduce(REDUCE).convert("L").point(lambda v: 255 if v > 200 else 0).histogram()[255] * REDUCE * REDUCE
 		# keep the picture only when something changed (long films would eat memory otherwise)
 		frames.append((t, light, img if light != lastLight else None))
 		lastLight = light
@@ -85,13 +94,13 @@ def capture(seconds, frames):
 
 
 frames = []
-th = threading.Thread(target=capture, args=(wait or 2.2, frames), daemon=True)
+th = threading.Thread(target=capture, args=(wait or seconds, frames), daemon=True)
 th.start()
 if wait:
 	print("filming for %.0f s: open the NVDA menu with NVDA+N, then press Escape" % wait, flush=True)
 else:
 	time.sleep(0.25)
-	subprocess.run([sys.executable, os.path.join(HERE, "nvda_exec.py"), "menupop"], check=False)
+	subprocess.run([sys.executable, os.path.join(HERE, "nvda_exec.py")] + verb.split(" "), check=False)
 th.join()
 
 out = os.path.join(HERE, "shots")
@@ -108,5 +117,8 @@ for i, (t, light, img) in enumerate(stats):
 keep = set(range(max(0, peak - 2), min(len(stats), peak + 3))) | {len(stats) - 1}
 keep = [i for i in sorted(keep) if stats[i][2] is not None]
 for i in keep:
-	stats[i][2].save(os.path.join(out, "%s-%03d.png" % (name, i)))
+	img = stats[i][2]
+	if full:
+		img = img.reduce(3)
+	img.save(os.path.join(out, "%s-%03d.png" % (name, i)))
 print("saved frames", sorted(keep), "to", out)

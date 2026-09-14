@@ -116,6 +116,18 @@ class CHARFORMATW(ctypes.Structure):
 	]
 
 
+class WINDOWPOS(ctypes.Structure):
+	_fields_ = [
+		("hwnd", wintypes.HWND),
+		("hwndInsertAfter", wintypes.HWND),
+		("x", ctypes.c_int),
+		("y", ctypes.c_int),
+		("cx", ctypes.c_int),
+		("cy", ctypes.c_int),
+		("flags", wintypes.UINT),
+	]
+
+
 class PAINTSTRUCT(ctypes.Structure):
 	_fields_ = [
 		("hdc", HANDLE),
@@ -260,6 +272,10 @@ EM_SETTEXTEX = 0x0461
 SCF_DEFAULT = 0x0000
 SCF_ALL = 0x0004
 CFM_COLOR = 0x40000000
+WM_WINDOWPOSCHANGED = 0x0047
+SWP_SHOWWINDOW = 0x0040
+RDW_ALLCHILDREN = 0x0080
+RDW_UPDATENOW = 0x0100
 WM_DARK_FRAME = 0x8000 + 0x37  # WM_APP + 0x37: "repaint our frame once everyone else is done"
 WM_QUERYUISTATE = 0x0129
 BM_GETSTATE = 0x00F2
@@ -314,6 +330,8 @@ ID_RICH = 5  # rich edit controls: keep text colour applied after the text is re
 ID_HEADER = 6
 ID_GRIP = 7  # the size grip wx puts in the corner of resizable dialogs (a bare ScrollBar window)
 ID_MENUPOPUP = 8  # popup menu windows (#32768): dark erase so they never flash light
+ID_ERASE = 9  # controls that only paint their background at WM_PAINT: dark base on erase
+ID_SHOWPAINT = 10  # top-level windows: paint everything synchronously the moment they appear
 
 
 def colorref(rgb):
@@ -368,6 +386,18 @@ def _frameOf(hwnd):
 	return max(0, min(pt.x - wr.left, pt.y - wr.top))
 
 
+def _paintWith(hwnd, draw):
+	"""Run a full-control drawing routine inside BeginPaint/EndPaint."""
+	ps = PAINTSTRUCT()
+	hdc = _BeginPaint(hwnd, ctypes.byref(ps))
+	if not hdc:
+		return
+	try:
+		draw(hwnd, hdc)
+	finally:
+		_EndPaint(hwnd, ctypes.byref(ps))
+
+
 def _paintFrame(hwnd):
 	hdc = _GetWindowDC(hwnd)
 	if not hdc:
@@ -394,87 +424,84 @@ def _paintFrame(hwnd):
 
 
 def _paintButton(hwnd):
-	ps = PAINTSTRUCT()
-	hdc = _BeginPaint(hwnd, ctypes.byref(ps))
-	if not hdc:
-		return
-	try:
-		rc = RECT()
-		_GetClientRect(hwnd, ctypes.byref(rc))
-		w, h = rc.right, rc.bottom
-		style = _GetWindowLongW(hwnd, GWL_STYLE)
-		state = _SendMessageW(hwnd, BM_GETSTATE, 0, 0)
-		enabled = bool(_IsWindowEnabled(hwnd))
-		hot = bool(state & BST_HOT)
-		pushed = bool(state & BST_PUSHED)
-		focused = bool(state & BST_FOCUS)
-		default = (style & BS_TYPEMASK) == BS_DEFPUSHBUTTON
-		uistate = _SendMessageW(hwnd, WM_QUERYUISTATE, 0, 0)
+	_paintWith(hwnd, _drawButton)
 
-		if not enabled:
-			face, border, text = BTN_DISABLED_FACE, BTN_DISABLED_BORDER, BTN_DISABLED_TEXT
-		elif pushed:
-			face, border, text = BTN_PRESSED, BTN_HOT_BORDER, BTN_TEXT
-		elif hot:
-			face, border, text = BTN_HOT, BTN_HOT_BORDER, BTN_TEXT
-		else:
-			face, border, text = BTN_FACE, BORDER, BTN_TEXT
 
-		bg = _CreateSolidBrush(colorref(PARENT_BG))
-		_FillRect(hdc, ctypes.byref(rc), bg)
-		_DeleteObject(bg)
+def _drawButton(hwnd, hdc):
+	rc = RECT()
+	_GetClientRect(hwnd, ctypes.byref(rc))
+	w, h = rc.right, rc.bottom
+	style = _GetWindowLongW(hwnd, GWL_STYLE)
+	state = _SendMessageW(hwnd, BM_GETSTATE, 0, 0)
+	enabled = bool(_IsWindowEnabled(hwnd))
+	hot = bool(state & BST_HOT)
+	pushed = bool(state & BST_PUSHED)
+	focused = bool(state & BST_FOCUS)
+	default = (style & BS_TYPEMASK) == BS_DEFPUSHBUTTON
+	uistate = _SendMessageW(hwnd, WM_QUERYUISTATE, 0, 0)
 
-		dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
-		radius = max(2, round(4 * dpi / 96))
-		pen = _CreatePen(PS_SOLID, 1, colorref(border))
-		brush = _CreateSolidBrush(colorref(face))
+	if not enabled:
+		face, border, text = BTN_DISABLED_FACE, BTN_DISABLED_BORDER, BTN_DISABLED_TEXT
+	elif pushed:
+		face, border, text = BTN_PRESSED, BTN_HOT_BORDER, BTN_TEXT
+	elif hot:
+		face, border, text = BTN_HOT, BTN_HOT_BORDER, BTN_TEXT
+	else:
+		face, border, text = BTN_FACE, BORDER, BTN_TEXT
+
+	bg = _CreateSolidBrush(colorref(PARENT_BG))
+	_FillRect(hdc, ctypes.byref(rc), bg)
+	_DeleteObject(bg)
+
+	dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
+	radius = max(2, round(4 * dpi / 96))
+	pen = _CreatePen(PS_SOLID, 1, colorref(border))
+	brush = _CreateSolidBrush(colorref(face))
+	oldPen = _SelectObject(hdc, pen)
+	oldBrush = _SelectObject(hdc, brush)
+	_RoundRect(hdc, 0, 0, w, h, radius, radius)
+	_SelectObject(hdc, oldPen)
+	_SelectObject(hdc, oldBrush)
+	_DeleteObject(pen)
+	_DeleteObject(brush)
+
+	ring = None
+	if focused and not (uistate & UISF_HIDEFOCUS):
+		ring = FOCUS
+	elif default and enabled:
+		ring = border
+	if ring:
+		pen = _CreatePen(PS_SOLID, 1, colorref(ring))
+		hollow = _gdi32.GetStockObject(5)  # NULL_BRUSH
 		oldPen = _SelectObject(hdc, pen)
-		oldBrush = _SelectObject(hdc, brush)
-		_RoundRect(hdc, 0, 0, w, h, radius, radius)
+		oldBrush = _SelectObject(hdc, hollow)
+		_RoundRect(hdc, 1, 1, w - 1, h - 1, radius, radius)
 		_SelectObject(hdc, oldPen)
 		_SelectObject(hdc, oldBrush)
 		_DeleteObject(pen)
-		_DeleteObject(brush)
 
-		ring = None
-		if focused and not (uistate & UISF_HIDEFOCUS):
-			ring = FOCUS
-		elif default and enabled:
-			ring = border
-		if ring:
-			pen = _CreatePen(PS_SOLID, 1, colorref(ring))
-			hollow = _gdi32.GetStockObject(5)  # NULL_BRUSH
-			oldPen = _SelectObject(hdc, pen)
-			oldBrush = _SelectObject(hdc, hollow)
-			_RoundRect(hdc, 1, 1, w - 1, h - 1, radius, radius)
-			_SelectObject(hdc, oldPen)
-			_SelectObject(hdc, oldBrush)
-			_DeleteObject(pen)
-
-		n = _GetWindowTextLengthW(hwnd)
-		if n > 0:
-			buf = ctypes.create_unicode_buffer(n + 1)
-			_GetWindowTextW(hwnd, buf, n + 1)
-			font = _SendMessageW(hwnd, WM_GETFONT, 0, 0)
-			oldFont = _SelectObject(hdc, font) if font else None
-			_SetBkMode(hdc, TRANSPARENT)
-			_SetTextColor(hdc, colorref(text))
-			flags = DT_CENTER
-			if uistate & UISF_HIDEACCEL:
-				flags |= DT_HIDEPREFIX
-			if style & BS_MULTILINE:
-				calc = RECT(0, 0, w - 6, 0)
-				_DrawTextW(hdc, buf, -1, ctypes.byref(calc), flags | DT_WORDBREAK | DT_CALCRECT)
-				top = max(0, (h - calc.bottom) // 2)
-				trc = RECT(3, top, w - 3, top + calc.bottom)
-				_DrawTextW(hdc, buf, -1, ctypes.byref(trc), flags | DT_WORDBREAK)
-			else:
-				trc = RECT(2, 0, w - 2, h)
-				_DrawTextW(hdc, buf, -1, ctypes.byref(trc), flags | DT_VCENTER | DT_SINGLELINE)
-			if oldFont:
-				_SelectObject(hdc, oldFont)
-	finally:
-		_EndPaint(hwnd, ctypes.byref(ps))
+	n = _GetWindowTextLengthW(hwnd)
+	if n > 0:
+		buf = ctypes.create_unicode_buffer(n + 1)
+		_GetWindowTextW(hwnd, buf, n + 1)
+		font = _SendMessageW(hwnd, WM_GETFONT, 0, 0)
+		oldFont = _SelectObject(hdc, font) if font else None
+		_SetBkMode(hdc, TRANSPARENT)
+		_SetTextColor(hdc, colorref(text))
+		flags = DT_CENTER
+		if uistate & UISF_HIDEACCEL:
+			flags |= DT_HIDEPREFIX
+		if style & BS_MULTILINE:
+			calc = RECT(0, 0, w - 6, 0)
+			_DrawTextW(hdc, buf, -1, ctypes.byref(calc), flags | DT_WORDBREAK | DT_CALCRECT)
+			top = max(0, (h - calc.bottom) // 2)
+			trc = RECT(3, top, w - 3, top + calc.bottom)
+			_DrawTextW(hdc, buf, -1, ctypes.byref(trc), flags | DT_WORDBREAK)
+		else:
+			trc = RECT(2, 0, w - 2, h)
+			_DrawTextW(hdc, buf, -1, ctypes.byref(trc), flags | DT_VCENTER | DT_SINGLELINE)
+		if oldFont:
+			_SelectObject(hdc, oldFont)
 
 
 def _paintCheckItem(dis):
@@ -545,31 +572,28 @@ def _paintCheckItem(dis):
 
 def _paintGrip(hwnd):
 	"""Dialog size grip: dialog background with a small triangle of dim dots in the corner."""
-	ps = PAINTSTRUCT()
-	hdc = _BeginPaint(hwnd, ctypes.byref(ps))
-	if not hdc:
-		return
-	try:
-		rc = RECT()
-		_GetClientRect(hwnd, ctypes.byref(rc))
-		bg = _CreateSolidBrush(colorref(PARENT_BG))
-		_FillRect(hdc, ctypes.byref(rc), bg)
-		_DeleteObject(bg)
-		dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
-		dot = max(1, round(1.5 * dpi / 96))
-		step = dot * 2
-		margin = max(2, round(4 * dpi / 96))
-		dotBrush = _CreateSolidBrush(colorref(GRIP_DOT))
-		# rows of 1, 2, 3 dots, anchored to the bottom-right corner
-		for row in range(3):
-			for col in range(row + 1):
-				x = rc.right - margin - dot - (row - col) * step
-				y = rc.bottom - margin - dot - (2 - row) * step
-				r = RECT(x, y, x + dot, y + dot)
-				_FillRect(hdc, ctypes.byref(r), dotBrush)
-		_DeleteObject(dotBrush)
-	finally:
-		_EndPaint(hwnd, ctypes.byref(ps))
+	_paintWith(hwnd, _drawGrip)
+
+
+def _drawGrip(hwnd, hdc):
+	rc = RECT()
+	_GetClientRect(hwnd, ctypes.byref(rc))
+	bg = _CreateSolidBrush(colorref(PARENT_BG))
+	_FillRect(hdc, ctypes.byref(rc), bg)
+	_DeleteObject(bg)
+	dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
+	dot = max(1, round(1.5 * dpi / 96))
+	step = dot * 2
+	margin = max(2, round(4 * dpi / 96))
+	dotBrush = _CreateSolidBrush(colorref(GRIP_DOT))
+	# rows of 1, 2, 3 dots, anchored to the bottom-right corner
+	for row in range(3):
+		for col in range(row + 1):
+			x = rc.right - margin - dot - (row - col) * step
+			y = rc.bottom - margin - dot - (2 - row) * step
+			r = RECT(x, y, x + dot, y + dot)
+			_FillRect(hdc, ctypes.byref(r), dotBrush)
+	_DeleteObject(dotBrush)
 
 
 def _tabText(hwnd, index):
@@ -583,81 +607,78 @@ def _tabText(hwnd, index):
 
 
 def _paintTabs(hwnd):
-	ps = PAINTSTRUCT()
-	hdc = _BeginPaint(hwnd, ctypes.byref(ps))
-	if not hdc:
-		return
-	try:
-		rc = RECT()
-		_GetClientRect(hwnd, ctypes.byref(rc))
-		bg = _CreateSolidBrush(colorref(PARENT_BG))
-		_FillRect(hdc, ctypes.byref(rc), bg)
-		_DeleteObject(bg)
-		count = _SendMessageW(hwnd, TCM_GETITEMCOUNT, 0, 0)
-		selected = _SendMessageW(hwnd, TCM_GETCURSEL, 0, 0)
-		hot = _tabHot.get(hwnd, -1)
-		focused = _GetFocus() == hwnd
-		uistate = _SendMessageW(hwnd, WM_QUERYUISTATE, 0, 0)
-		dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
-		radius = max(2, round(4 * dpi / 96))
-		font = _SendMessageW(hwnd, WM_GETFONT, 0, 0)
-		oldFont = _SelectObject(hdc, font) if font else None
-		_SetBkMode(hdc, TRANSPARENT)
-		stripBottom = 0
-		for i in range(count):
-			r = RECT()
-			_SendMessageW(hwnd, TCM_GETITEMRECT, i, ctypes.addressof(r))
-			stripBottom = max(stripBottom, r.bottom)
-			isSel = i == selected
-			if isSel:
-				face, border, text = TAB_SELECTED_FACE, BORDER, TAB_SELECTED_TEXT
-			elif i == hot:
-				face, border, text = TAB_HOT_FACE, BTN_HOT_BORDER, TAB_SELECTED_TEXT
-			else:
-				face, border, text = PARENT_BG, BTN_DISABLED_BORDER, TAB_TEXT
-			pen = _CreatePen(PS_SOLID, 1, colorref(border))
-			brush = _CreateSolidBrush(colorref(face))
+	_paintWith(hwnd, _drawTabs)
+
+
+def _drawTabs(hwnd, hdc):
+	rc = RECT()
+	_GetClientRect(hwnd, ctypes.byref(rc))
+	bg = _CreateSolidBrush(colorref(PARENT_BG))
+	_FillRect(hdc, ctypes.byref(rc), bg)
+	_DeleteObject(bg)
+	count = _SendMessageW(hwnd, TCM_GETITEMCOUNT, 0, 0)
+	selected = _SendMessageW(hwnd, TCM_GETCURSEL, 0, 0)
+	hot = _tabHot.get(hwnd, -1)
+	focused = _GetFocus() == hwnd
+	uistate = _SendMessageW(hwnd, WM_QUERYUISTATE, 0, 0)
+	dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
+	radius = max(2, round(4 * dpi / 96))
+	font = _SendMessageW(hwnd, WM_GETFONT, 0, 0)
+	oldFont = _SelectObject(hdc, font) if font else None
+	_SetBkMode(hdc, TRANSPARENT)
+	stripBottom = 0
+	for i in range(count):
+		r = RECT()
+		_SendMessageW(hwnd, TCM_GETITEMRECT, i, ctypes.addressof(r))
+		stripBottom = max(stripBottom, r.bottom)
+		isSel = i == selected
+		if isSel:
+			face, border, text = TAB_SELECTED_FACE, BORDER, TAB_SELECTED_TEXT
+		elif i == hot:
+			face, border, text = TAB_HOT_FACE, BTN_HOT_BORDER, TAB_SELECTED_TEXT
+		else:
+			face, border, text = PARENT_BG, BTN_DISABLED_BORDER, TAB_TEXT
+		pen = _CreatePen(PS_SOLID, 1, colorref(border))
+		brush = _CreateSolidBrush(colorref(face))
+		oldPen = _SelectObject(hdc, pen)
+		oldBrush = _SelectObject(hdc, brush)
+		# Rounded on top only: extend the rect below the strip and let the
+		# separator line cover the bottom corners.
+		_RoundRect(hdc, r.left, r.top, r.right, r.bottom + radius, radius, radius)
+		_SelectObject(hdc, oldPen)
+		_SelectObject(hdc, oldBrush)
+		_DeleteObject(pen)
+		_DeleteObject(brush)
+		if isSel and focused and not (uistate & UISF_HIDEFOCUS):
+			pen = _CreatePen(PS_SOLID, 1, colorref(FOCUS))
+			hollow = _gdi32.GetStockObject(5)
 			oldPen = _SelectObject(hdc, pen)
-			oldBrush = _SelectObject(hdc, brush)
-			# Rounded on top only: extend the rect below the strip and let the
-			# separator line cover the bottom corners.
-			_RoundRect(hdc, r.left, r.top, r.right, r.bottom + radius, radius, radius)
+			oldBrush = _SelectObject(hdc, hollow)
+			_RoundRect(hdc, r.left + 2, r.top + 2, r.right - 2, r.bottom + radius, radius, radius)
 			_SelectObject(hdc, oldPen)
 			_SelectObject(hdc, oldBrush)
 			_DeleteObject(pen)
-			_DeleteObject(brush)
-			if isSel and focused and not (uistate & UISF_HIDEFOCUS):
-				pen = _CreatePen(PS_SOLID, 1, colorref(FOCUS))
-				hollow = _gdi32.GetStockObject(5)
-				oldPen = _SelectObject(hdc, pen)
-				oldBrush = _SelectObject(hdc, hollow)
-				_RoundRect(hdc, r.left + 2, r.top + 2, r.right - 2, r.bottom + radius, radius, radius)
-				_SelectObject(hdc, oldPen)
-				_SelectObject(hdc, oldBrush)
-				_DeleteObject(pen)
-			_SetTextColor(hdc, colorref(text))
-			trc = RECT(r.left + 2, r.top, r.right - 2, r.bottom)
-			flags = DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS
-			if uistate & UISF_HIDEACCEL:
-				flags |= DT_HIDEPREFIX
-			_DrawTextW(hdc, _tabText(hwnd, i), -1, ctypes.byref(trc), flags)
-		if count:
-			# Separator under the strip, tucking the selected tab into the page.
-			line = _CreateSolidBrush(colorref(BORDER))
-			sep = RECT(rc.left, stripBottom, rc.right, stripBottom + 1)
-			_FillRect(hdc, ctypes.byref(sep), line)
-			_DeleteObject(line)
-			if 0 <= selected < count:
-				r = RECT()
-				_SendMessageW(hwnd, TCM_GETITEMRECT, selected, ctypes.addressof(r))
-				gap = RECT(r.left + 1, stripBottom, r.right - 1, stripBottom + 1)
-				face = _CreateSolidBrush(colorref(TAB_SELECTED_FACE))
-				_FillRect(hdc, ctypes.byref(gap), face)
-				_DeleteObject(face)
-		if oldFont:
-			_SelectObject(hdc, oldFont)
-	finally:
-		_EndPaint(hwnd, ctypes.byref(ps))
+		_SetTextColor(hdc, colorref(text))
+		trc = RECT(r.left + 2, r.top, r.right - 2, r.bottom)
+		flags = DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS
+		if uistate & UISF_HIDEACCEL:
+			flags |= DT_HIDEPREFIX
+		_DrawTextW(hdc, _tabText(hwnd, i), -1, ctypes.byref(trc), flags)
+	if count:
+		# Separator under the strip, tucking the selected tab into the page.
+		line = _CreateSolidBrush(colorref(BORDER))
+		sep = RECT(rc.left, stripBottom, rc.right, stripBottom + 1)
+		_FillRect(hdc, ctypes.byref(sep), line)
+		_DeleteObject(line)
+		if 0 <= selected < count:
+			r = RECT()
+			_SendMessageW(hwnd, TCM_GETITEMRECT, selected, ctypes.addressof(r))
+			gap = RECT(r.left + 1, stripBottom, r.right - 1, stripBottom + 1)
+			face = _CreateSolidBrush(colorref(TAB_SELECTED_FACE))
+			_FillRect(hdc, ctypes.byref(gap), face)
+			_DeleteObject(face)
+	if oldFont:
+		_SelectObject(hdc, oldFont)
 
 
 def _headerItem(hwnd, index):
@@ -671,67 +692,64 @@ def _headerItem(hwnd, index):
 
 
 def _paintHeader(hwnd):
-	ps = PAINTSTRUCT()
-	hdc = _BeginPaint(hwnd, ctypes.byref(ps))
-	if not hdc:
-		return
-	try:
-		rc = RECT()
-		_GetClientRect(hwnd, ctypes.byref(rc))
-		bg = _CreateSolidBrush(colorref(HEADER_BG))
-		_FillRect(hdc, ctypes.byref(rc), bg)
-		_DeleteObject(bg)
-		count = _SendMessageW(hwnd, HDM_GETITEMCOUNT, 0, 0)
-		hot = _tabHot.get(hwnd, -1)
-		font = _SendMessageW(hwnd, WM_GETFONT, 0, 0)
-		oldFont = _SelectObject(hdc, font) if font else None
-		_SetBkMode(hdc, TRANSPARENT)
-		sepBrush = _CreateSolidBrush(colorref(HEADER_SEPARATOR))
-		hotBrush = _CreateSolidBrush(colorref(HEADER_HOT_BG))
-		textBrush = _CreateSolidBrush(colorref(HEADER_TEXT))
-		dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
-		pad = max(3, round(4 * dpi / 96))
-		for i in range(count):
-			r = RECT()
-			_SendMessageW(hwnd, HDM_GETITEMRECT, i, ctypes.addressof(r))
-			if i == hot:
-				_FillRect(hdc, ctypes.byref(r), hotBrush)
-			text, fmt = _headerItem(hwnd, i)
-			align = fmt & HDF_JUSTIFYMASK
-			flags = DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX
-			flags |= DT_CENTER if align == HDF_CENTER else DT_RIGHT if align == HDF_RIGHT else DT_LEFT
-			_SetTextColor(hdc, colorref(HEADER_TEXT))
-			trc = RECT(r.left + pad, r.top, r.right - pad, r.bottom)
-			_DrawTextW(hdc, text, -1, ctypes.byref(trc), flags)
-			if fmt & (HDF_SORTUP | HDF_SORTDOWN):
-				# small sort triangle at the top centre of the column
-				size = max(3, round(3 * dpi / 96))
-				cx = (r.left + r.right) // 2
-				top = r.top + 1
-				if fmt & HDF_SORTUP:
-					pts = (wintypes.POINT * 3)(wintypes.POINT(cx - size, top + size), wintypes.POINT(cx + size, top + size), wintypes.POINT(cx, top))
-				else:
-					pts = (wintypes.POINT * 3)(wintypes.POINT(cx - size, top), wintypes.POINT(cx + size, top), wintypes.POINT(cx, top + size))
-				pen = _CreatePen(PS_SOLID, 1, colorref(HEADER_TEXT))
-				oldPen = _SelectObject(hdc, pen)
-				oldBrush = _SelectObject(hdc, textBrush)
-				_gdi32.Polygon(hdc, pts, 3)
-				_SelectObject(hdc, oldPen)
-				_SelectObject(hdc, oldBrush)
-				_DeleteObject(pen)
-			sep = RECT(r.right - 1, r.top + pad, r.right, r.bottom - pad)
-			_FillRect(hdc, ctypes.byref(sep), sepBrush)
-		bottomBrush = _CreateSolidBrush(colorref(HEADER_BOTTOM))
-		bottom = RECT(rc.left, rc.bottom - 1, rc.right, rc.bottom)
-		_FillRect(hdc, ctypes.byref(bottom), bottomBrush)
-		_DeleteObject(bottomBrush)
-		_DeleteObject(sepBrush)
-		_DeleteObject(hotBrush)
-		_DeleteObject(textBrush)
-		if oldFont:
-			_SelectObject(hdc, oldFont)
-	finally:
-		_EndPaint(hwnd, ctypes.byref(ps))
+	_paintWith(hwnd, _drawHeader)
+
+
+def _drawHeader(hwnd, hdc):
+	rc = RECT()
+	_GetClientRect(hwnd, ctypes.byref(rc))
+	bg = _CreateSolidBrush(colorref(HEADER_BG))
+	_FillRect(hdc, ctypes.byref(rc), bg)
+	_DeleteObject(bg)
+	count = _SendMessageW(hwnd, HDM_GETITEMCOUNT, 0, 0)
+	hot = _tabHot.get(hwnd, -1)
+	font = _SendMessageW(hwnd, WM_GETFONT, 0, 0)
+	oldFont = _SelectObject(hdc, font) if font else None
+	_SetBkMode(hdc, TRANSPARENT)
+	sepBrush = _CreateSolidBrush(colorref(HEADER_SEPARATOR))
+	hotBrush = _CreateSolidBrush(colorref(HEADER_HOT_BG))
+	textBrush = _CreateSolidBrush(colorref(HEADER_TEXT))
+	dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
+	pad = max(3, round(4 * dpi / 96))
+	for i in range(count):
+		r = RECT()
+		_SendMessageW(hwnd, HDM_GETITEMRECT, i, ctypes.addressof(r))
+		if i == hot:
+			_FillRect(hdc, ctypes.byref(r), hotBrush)
+		text, fmt = _headerItem(hwnd, i)
+		align = fmt & HDF_JUSTIFYMASK
+		flags = DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX
+		flags |= DT_CENTER if align == HDF_CENTER else DT_RIGHT if align == HDF_RIGHT else DT_LEFT
+		_SetTextColor(hdc, colorref(HEADER_TEXT))
+		trc = RECT(r.left + pad, r.top, r.right - pad, r.bottom)
+		_DrawTextW(hdc, text, -1, ctypes.byref(trc), flags)
+		if fmt & (HDF_SORTUP | HDF_SORTDOWN):
+			# small sort triangle at the top centre of the column
+			size = max(3, round(3 * dpi / 96))
+			cx = (r.left + r.right) // 2
+			top = r.top + 1
+			if fmt & HDF_SORTUP:
+				pts = (wintypes.POINT * 3)(wintypes.POINT(cx - size, top + size), wintypes.POINT(cx + size, top + size), wintypes.POINT(cx, top))
+			else:
+				pts = (wintypes.POINT * 3)(wintypes.POINT(cx - size, top), wintypes.POINT(cx + size, top), wintypes.POINT(cx, top + size))
+			pen = _CreatePen(PS_SOLID, 1, colorref(HEADER_TEXT))
+			oldPen = _SelectObject(hdc, pen)
+			oldBrush = _SelectObject(hdc, textBrush)
+			_gdi32.Polygon(hdc, pts, 3)
+			_SelectObject(hdc, oldPen)
+			_SelectObject(hdc, oldBrush)
+			_DeleteObject(pen)
+		sep = RECT(r.right - 1, r.top + pad, r.right, r.bottom - pad)
+		_FillRect(hdc, ctypes.byref(sep), sepBrush)
+	bottomBrush = _CreateSolidBrush(colorref(HEADER_BOTTOM))
+	bottom = RECT(rc.left, rc.bottom - 1, rc.right, rc.bottom)
+	_FillRect(hdc, ctypes.byref(bottom), bottomBrush)
+	_DeleteObject(bottomBrush)
+	_DeleteObject(sepBrush)
+	_DeleteObject(hotBrush)
+	_DeleteObject(textBrush)
+	if oldFont:
+		_SelectObject(hdc, oldFont)
 
 
 def _headerHitTest(hwnd, lParam):
@@ -766,6 +784,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 			_RemoveWindowSubclass(hwnd, _subclassProc, idSubclass)
 			_subclassed.pop(hwnd, None)
 			_checkLists.pop(hwnd, None)
+			_eraseColours.pop(hwnd, None)
 			_framePending.discard(hwnd)
 			_tabHot.pop(hwnd, None)
 			return _DefSubclassProc(hwnd, msg, wParam, lParam)
@@ -802,6 +821,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				_paintHeader(hwnd)
 				return 0
 			if msg == WM_ERASEBKGND:
+				_drawHeader(hwnd, wParam)  # look final from the first erase (see ID_ERASE)
 				return 1
 			if msg == WM_MOUSEMOVE:
 				hit = _headerHitTest(hwnd, lParam)
@@ -818,6 +838,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				_paintTabs(hwnd)
 				return 0
 			if msg == WM_ERASEBKGND:
+				_drawTabs(hwnd, wParam)
 				return 1
 			if msg == WM_MOUSEMOVE:
 				hit = _tabHitTest(hwnd, lParam)
@@ -838,7 +859,29 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				_paintGrip(hwnd)
 				return 0
 			if msg == WM_ERASEBKGND:
+				_drawGrip(hwnd, wParam)
 				return 1
+		elif idSubclass == ID_SHOWPAINT:
+			if msg == WM_WINDOWPOSCHANGED and WINDOWPOS.from_address(lParam).flags & SWP_SHOWWINDOW:
+				# The window just became visible. Windows has erased it (dark, thanks to the
+				# rest of this file) but the real painting would wait for the message loop,
+				# and NVDA spends ~100 ms announcing a new dialog first. Paint the whole tree
+				# now, inside the show call, so the first frame anyone sees is the finished one.
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)  # lets wx lay the dialog out
+				_RedrawWindow(hwnd, None, None, RDW_UPDATENOW | RDW_ALLCHILDREN)
+				return res
+		elif idSubclass == ID_ERASE:
+			if msg == WM_ERASEBKGND:
+				# Some controls (list views, static boxes, gauges...) leave their background
+				# alone until WM_PAINT. NVDA is busy for ~100 ms after a dialog appears, so
+				# the raw white surface showed in between. Lay down the dark base now.
+				rgb = _eraseColours.get(hwnd)
+				if rgb is not None:
+					rc = RECT()
+					_GetClientRect(hwnd, ctypes.byref(rc))
+					brush = _CreateSolidBrush(colorref(rgb))
+					_FillRect(wParam, ctypes.byref(rc), brush)
+					_DeleteObject(brush)
 		elif idSubclass == ID_MENUPOPUP:
 			if msg == WM_ERASEBKGND:
 				# Windows erases a new popup menu with the light menu colour and paints the
@@ -855,6 +898,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				_paintButton(hwnd)
 				return 0
 			if msg == WM_ERASEBKGND:
+				_drawButton(hwnd, wParam)
 				return 1
 			if msg in (WM_ENABLE, WM_UPDATEUISTATE):
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
@@ -865,6 +909,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 	return _DefSubclassProc(hwnd, msg, wParam, lParam)
 
 
+_eraseColours = {}  # hwnd -> rgb laid down on WM_ERASEBKGND (ID_ERASE)
 _subclassProc = _SUBCLASSPROC(_proc)  # must stay alive for as long as any window is subclassed
 
 
@@ -997,6 +1042,24 @@ def applyGrip(hwnd, dark: bool):
 		_InvalidateRect(hwnd, None, True)
 
 
+def applyShowPaint(hwnd, dark: bool):
+	"""Paint a top-level window and all its children synchronously whenever it is shown."""
+	if dark:
+		_attach(hwnd, ID_SHOWPAINT)
+	else:
+		_detach(hwnd, ID_SHOWPAINT)
+
+
+def applyEraseBase(hwnd, rgb, dark: bool):
+	"""Dark base colour under a control's own (late) background painting; None/dark=False removes it."""
+	if dark:
+		_eraseColours[hwnd] = rgb
+		_attach(hwnd, ID_ERASE)
+	else:
+		_eraseColours.pop(hwnd, None)
+		_detach(hwnd, ID_ERASE)
+
+
 def registerCheckList(hwnd, hwndParent, win, dark: bool):
 	"""Owner-draw the rows of a wx.CheckListBox (its parent receives WM_DRAWITEM)."""
 	if dark:
@@ -1060,6 +1123,7 @@ def removeMenuHook():
 
 def detachAll():
 	removeMenuHook()
+	_eraseColours.clear()
 	_checkLists.clear()
 	_tabHot.clear()
 	for hwnd, ids in list(_subclassed.items()):
