@@ -273,6 +273,14 @@ SCF_DEFAULT = 0x0000
 SCF_ALL = 0x0004
 CFM_COLOR = 0x40000000
 WM_WINDOWPOSCHANGED = 0x0047
+WS_CAPTION = 0x00C00000
+_ExcludeClipRect = _gdi32.ExcludeClipRect
+_ExcludeClipRect.argtypes = (HANDLE, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int)
+_GetDC = _user32.GetDC
+_GetDC.argtypes = (wintypes.HWND,)
+_GetDC.restype = HANDLE
+_IsWindowVisible = _user32.IsWindowVisible
+_IsWindowVisible.argtypes = (wintypes.HWND,)
 SWP_SHOWWINDOW = 0x0040
 RDW_ALLCHILDREN = 0x0080
 RDW_UPDATENOW = 0x0100
@@ -331,7 +339,9 @@ ID_HEADER = 6
 ID_GRIP = 7  # the size grip wx puts in the corner of resizable dialogs (a bare ScrollBar window)
 ID_MENUPOPUP = 8  # popup menu windows (#32768): dark erase so they never flash light
 ID_ERASE = 9  # controls that only paint their background at WM_PAINT: dark base on erase
-ID_SHOWPAINT = 10  # top-level windows: paint everything synchronously the moment they appear
+ID_SHOWPAINT = 10  # top-level windows: paint everything synchronously the moment they appear; title separator
+ID_STATICBOX = 11  # group boxes (wx.StaticBox / wx.RadioBox): our own border and label
+ID_STATICLINE = 12  # wx.StaticLine: one soft line instead of the etched white/grey pair
 
 
 def colorref(rgb):
@@ -345,15 +355,16 @@ FOCUS = (0x60, 0xCD, 0xFF)  # focus rings: the Windows 11 dark-mode accent blue,
 FRAME_INNER = (0x2B, 0x2B, 0x2B)  # covers the theme's inner white line (matches field background)
 PARENT_BG = (0x20, 0x20, 0x20)  # dialog background, shows behind rounded button corners
 GRIP_DOT = (0x62, 0x62, 0x62)  # size grip dots: visible if you look for them, nothing more
+LAYOUT_LINE = (0x8C, 0x8C, 0x8C)  # structure, not controls: panel frames, group boxes, separators, under the title bar
 MENU_BG = (0x2C, 0x2C, 0x2C)  # what Windows paints dark popup menus with (measured); used only for the erase
 BTN_FACE = (0x33, 0x33, 0x33)
 BTN_HOT = (0x50, 0x50, 0x50)  # hover: clearly lighter than the face
 BTN_PRESSED = (0x28, 0x28, 0x28)
 BTN_DISABLED_FACE = (0x2A, 0x2A, 0x2A)
 BTN_HOT_BORDER = (0xE8, 0xE8, 0xE8)
-BTN_DISABLED_BORDER = (0x70, 0x70, 0x70)
+BTN_DISABLED_BORDER = (0x80, 0x80, 0x80)
 BTN_TEXT = (0xFF, 0xFF, 0xFF)
-BTN_DISABLED_TEXT = (0x8A, 0x8A, 0x8A)  # readable, just a step down from enabled
+BTN_DISABLED_TEXT = (0x9C, 0x9C, 0x9C)  # readable, a step down from enabled
 LIST_BG = (0x2B, 0x2B, 0x2B)
 LIST_TEXT = (0xFF, 0xFF, 0xFF)
 LIST_DISABLED_TEXT = (0x8A, 0x8A, 0x8A)
@@ -410,7 +421,7 @@ def _paintFrame(hwnd):
 		if thick <= 0:
 			return
 		focused = _GetFocus() == hwnd
-		outer = _CreateSolidBrush(colorref(FOCUS if focused else BORDER))
+		outer = _CreateSolidBrush(colorref(FOCUS if focused else _frameColours.get(hwnd, BORDER)))
 		inner = _CreateSolidBrush(colorref(FOCUS if focused else FRAME_INNER))
 		try:
 			for i in range(thick):
@@ -502,6 +513,120 @@ def _drawButton(hwnd, hdc):
 			_DrawTextW(hdc, buf, -1, ctypes.byref(trc), flags | DT_VCENTER | DT_SINGLELINE)
 		if oldFont:
 			_SelectObject(hdc, oldFont)
+
+
+def _excludeChildren(hwnd, hdc):
+	"""Keep our background fill off the child controls sitting inside a group box."""
+	child = _GetWindow(hwnd, GW_CHILD)
+	while child:
+		if _IsWindowVisible(child):
+			r = RECT()
+			_GetWindowRect(child, ctypes.byref(r))
+			tl = wintypes.POINT(r.left, r.top)
+			br = wintypes.POINT(r.right, r.bottom)
+			_user32.ScreenToClient(hwnd, ctypes.byref(tl))
+			_user32.ScreenToClient(hwnd, ctypes.byref(br))
+			_ExcludeClipRect(hdc, tl.x, tl.y, br.x, br.y)
+		child = _GetWindow(child, GW_HWNDNEXT)
+
+
+def _windowText(hwnd):
+	n = _GetWindowTextLengthW(hwnd)
+	if n <= 0:
+		return None
+	buf = ctypes.create_unicode_buffer(n + 1)
+	_GetWindowTextW(hwnd, buf, n + 1)
+	return buf
+
+
+def _paintStaticBox(hwnd):
+	_paintWith(hwnd, _drawStaticBox)
+
+
+def _drawStaticBox(hwnd, hdc):
+	"""Group box: soft one-pixel frame, label breaking the top edge, like Windows draws it."""
+	rc = RECT()
+	_GetClientRect(hwnd, ctypes.byref(rc))
+	w, h = rc.right, rc.bottom
+	_excludeChildren(hwnd, hdc)
+	bg = _CreateSolidBrush(colorref(PARENT_BG))
+	_FillRect(hdc, ctypes.byref(rc), bg)
+	dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
+	labelX = round(9 * dpi / 96)
+	gap = round(2 * dpi / 96)
+	text = _windowText(hwnd)
+	font = _SendMessageW(hwnd, WM_GETFONT, 0, 0)
+	oldFont = _SelectObject(hdc, font) if font else None
+	labelH = 0
+	labelW = 0
+	flags = DT_LEFT | DT_SINGLELINE
+	if _SendMessageW(hwnd, WM_QUERYUISTATE, 0, 0) & UISF_HIDEACCEL:
+		flags |= DT_HIDEPREFIX
+	if text:
+		calc = RECT(0, 0, 0, 0)
+		_DrawTextW(hdc, text, -1, ctypes.byref(calc), flags | DT_CALCRECT)
+		labelW, labelH = calc.right, calc.bottom
+	top = labelH // 2
+	line = _CreateSolidBrush(colorref(LAYOUT_LINE))
+	frame = RECT(0, top, w, h)
+	_FrameRect(hdc, ctypes.byref(frame), line)
+	if text:
+		cover = RECT(labelX - gap, 0, min(w, labelX + labelW + gap), labelH)
+		_FillRect(hdc, ctypes.byref(cover), bg)
+		_SetBkMode(hdc, TRANSPARENT)
+		_SetTextColor(hdc, colorref(BTN_TEXT if _IsWindowEnabled(hwnd) else BTN_DISABLED_TEXT))
+		trc = RECT(labelX, 0, min(w, labelX + labelW), labelH)
+		_DrawTextW(hdc, text, -1, ctypes.byref(trc), flags)
+	if oldFont:
+		_SelectObject(hdc, oldFont)
+	_DeleteObject(line)
+	_DeleteObject(bg)
+
+
+def _paintStaticLine(hwnd):
+	"""wx.StaticLine is all border (WS_EX_STATICEDGE, no client area): paint the window rect."""
+	hdc = _GetWindowDC(hwnd)
+	if not hdc:
+		return
+	try:
+		_drawStaticLine(hwnd, hdc)
+	finally:
+		_ReleaseDC(hwnd, hdc)
+
+
+def _drawStaticLine(hwnd, hdc):
+	wr = RECT()
+	_GetWindowRect(hwnd, ctypes.byref(wr))
+	w, h = wr.right - wr.left, wr.bottom - wr.top
+	rc = RECT(0, 0, w, h)
+	bg = _CreateSolidBrush(colorref(PARENT_BG))
+	_FillRect(hdc, ctypes.byref(rc), bg)
+	_DeleteObject(bg)
+	dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
+	t = max(1, round(dpi / 96))
+	if w >= h:
+		y = max(0, h // 2 - t // 2)
+		r = RECT(0, y, w, min(h, y + t))
+	else:
+		x = max(0, w // 2 - t // 2)
+		r = RECT(x, 0, min(w, x + t), h)
+	line = _CreateSolidBrush(colorref(LAYOUT_LINE))
+	_FillRect(hdc, ctypes.byref(r), line)
+	_DeleteObject(line)
+
+
+def _drawTitleSeparator(hwnd, hdc):
+	"""A soft line along the top of a dialog's client area, where the title bar ends."""
+	if (_GetWindowLongW(hwnd, GWL_STYLE) & WS_CAPTION) != WS_CAPTION:
+		return
+	rc = RECT()
+	_GetClientRect(hwnd, ctypes.byref(rc))
+	dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
+	t = max(1, round(dpi / 96))
+	r = RECT(0, 0, rc.right, min(rc.bottom, t))
+	line = _CreateSolidBrush(colorref(LAYOUT_LINE))
+	_FillRect(hdc, ctypes.byref(r), line)
+	_DeleteObject(line)
 
 
 def _paintCheckItem(dis):
@@ -785,6 +910,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 			_subclassed.pop(hwnd, None)
 			_checkLists.pop(hwnd, None)
 			_eraseColours.pop(hwnd, None)
+			_frameColours.pop(hwnd, None)
 			_framePending.discard(hwnd)
 			_tabHot.pop(hwnd, None)
 			return _DefSubclassProc(hwnd, msg, wParam, lParam)
@@ -861,7 +987,41 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 			if msg == WM_ERASEBKGND:
 				_drawGrip(hwnd, wParam)
 				return 1
+		elif idSubclass == ID_STATICBOX:
+			if msg == WM_PAINT:
+				_paintStaticBox(hwnd)
+				return 0
+			if msg == WM_ERASEBKGND:
+				_drawStaticBox(hwnd, wParam)
+				return 1
+			if msg in (WM_ENABLE, WM_UPDATEUISTATE):
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				_InvalidateRect(hwnd, None, False)
+				return res
+		elif idSubclass == ID_STATICLINE:
+			if msg == WM_NCPAINT:
+				_paintStaticLine(hwnd)
+				return 0
+			if msg == WM_PAINT:
+				_paintWith(hwnd, lambda h, dc: None)  # validate the (empty) client area
+				_paintStaticLine(hwnd)
+				return 0
+			if msg == WM_ERASEBKGND:
+				return 1
 		elif idSubclass == ID_SHOWPAINT:
+			if msg == WM_ERASEBKGND:
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				_drawTitleSeparator(hwnd, wParam)
+				return res
+			if msg == WM_PAINT:
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				hdc = _GetDC(hwnd)
+				if hdc:
+					try:
+						_drawTitleSeparator(hwnd, hdc)
+					finally:
+						_ReleaseDC(hwnd, hdc)
+				return res
 			if msg == WM_WINDOWPOSCHANGED and WINDOWPOS.from_address(lParam).flags & SWP_SHOWWINDOW:
 				# The window just became visible. Windows has erased it (dark, thanks to the
 				# rest of this file) but the real painting would wait for the message loop,
@@ -910,6 +1070,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 
 
 _eraseColours = {}  # hwnd -> rgb laid down on WM_ERASEBKGND (ID_ERASE)
+_frameColours = {}  # hwnd -> frame colour when not focused (ID_FRAME); default BORDER
 _subclassProc = _SUBCLASSPROC(_proc)  # must stay alive for as long as any window is subclassed
 
 
@@ -954,10 +1115,13 @@ def spinBuddy(hwndUpDown):
 	return _SendMessageW(hwndUpDown, UDM_GETBUDDY, 0, 0)
 
 
-def applyFrame(hwnd, dark: bool):
+def applyFrame(hwnd, dark: bool, colour=None):
 	if dark:
+		if colour is not None:
+			_frameColours[hwnd] = colour
 		_attach(hwnd, ID_FRAME)
 	else:
+		_frameColours.pop(hwnd, None)
 		_detach(hwnd, ID_FRAME)
 	if _IsWindow(hwnd):
 		_RedrawWindow(hwnd, None, None, RDW_FRAME | RDW_INVALIDATE | RDW_ERASE)
@@ -1050,6 +1214,24 @@ def applyShowPaint(hwnd, dark: bool):
 		_detach(hwnd, ID_SHOWPAINT)
 
 
+def applyStaticBox(hwnd, dark: bool):
+	if dark:
+		_attach(hwnd, ID_STATICBOX)
+	else:
+		_detach(hwnd, ID_STATICBOX)
+	if _IsWindow(hwnd):
+		_InvalidateRect(hwnd, None, True)
+
+
+def applyStaticLine(hwnd, dark: bool):
+	if dark:
+		_attach(hwnd, ID_STATICLINE)
+	else:
+		_detach(hwnd, ID_STATICLINE)
+	if _IsWindow(hwnd):
+		_RedrawWindow(hwnd, None, None, RDW_FRAME | RDW_INVALIDATE | RDW_ERASE)
+
+
 def applyEraseBase(hwnd, rgb, dark: bool):
 	"""Dark base colour under a control's own (late) background painting; None/dark=False removes it."""
 	if dark:
@@ -1124,6 +1306,7 @@ def removeMenuHook():
 def detachAll():
 	removeMenuHook()
 	_eraseColours.clear()
+	_frameColours.clear()
 	_checkLists.clear()
 	_tabHot.clear()
 	for hwnd, ids in list(_subclassed.items()):

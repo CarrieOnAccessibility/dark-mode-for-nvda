@@ -109,7 +109,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		except ValueError:
 			pass
 		try:
-			self.engine.stop()
+			import core
+
+			exiting = bool(getattr(core, "_hasShutdownBeenTriggered", False))
+		except Exception:
+			exiting = False
+		try:
+			self.engine.stop(restore=not exiting)
 		except Exception:
 			log.exception("nvdaDarkMode: engine failed to stop cleanly")
 		GlobalPlugin.instance = None

@@ -132,7 +132,7 @@ DWMWA_BORDER_COLOR = 34
 DWMWA_CAPTION_COLOR = 35
 DWMWA_TEXT_COLOR = 36
 DWMWA_COLOR_DEFAULT = 0xFFFFFFFF
-WINDOW_BORDER = wx.Colour(0xC8, 0xC8, 0xC8)  # light grey ring around every NVDA dialog
+WINDOW_BORDER = wx.Colour(0x60, 0xCD, 0xFF)  # one-pixel ring around every NVDA dialog: the dark-mode accent blue
 TITLE_BG = wx.Colour(0x00, 0x00, 0x00)  # title bars: black (Windows 11 only; older builds keep the dark-mode grey)
 TITLE_FG = wx.Colour(0xFF, 0xFF, 0xFF)
 
@@ -299,8 +299,10 @@ def _applyDark(win, hwnd):
 			native.registerCheckList(hwnd, parent.GetHandle(), win, True)
 	if isinstance(win, wx.TextCtrl) and native.isRichEdit(hwnd):
 		native.applyRich(hwnd, True)
+	# Frames around layout (panels) are structure, not fields: draw them softer.
+	layout = isinstance(win, (wx.Panel, wx.ScrolledWindow)) and not isinstance(win, _FIELD_TYPES)
 	for h in _framedHwnds(win, hwnd):
-		native.applyFrame(h, True)
+		native.applyFrame(h, True, native.LAYOUT_LINE if layout else None)
 	if isinstance(win, wx.Button) and native.isPlainPushButton(hwnd):
 		native.applyButton(hwnd, True)
 	if isinstance(win, wx.Notebook):
@@ -308,8 +310,10 @@ def _applyDark(win, hwnd):
 	# These paint their background only at WM_PAINT and showed white until then.
 	if isinstance(win, (wx.ListCtrl, wx.ComboBox, wx.Gauge)):
 		native.applyEraseBase(hwnd, native.LIST_BG, True)
-	elif isinstance(win, (wx.StaticBox, wx.RadioBox)):
-		native.applyEraseBase(hwnd, native.PARENT_BG, True)
+	if isinstance(win, (wx.StaticBox, wx.RadioBox)):
+		native.applyStaticBox(hwnd, True)
+	if isinstance(win, wx.StaticLine):
+		native.applyStaticLine(hwnd, True)
 	if isinstance(win, wx.ListCtrl):
 		header = _SendMessage(hwnd, LVM_GETHEADER, 0, 0)
 		if header:
@@ -358,8 +362,12 @@ def _restoreLight(win, hwnd, state):
 		native.applyButton(hwnd, False)
 	if isinstance(win, wx.Notebook):
 		native.applyTabs(hwnd, False)
-	if isinstance(win, (wx.ListCtrl, wx.ComboBox, wx.Gauge, wx.StaticBox, wx.RadioBox)):
+	if isinstance(win, (wx.ListCtrl, wx.ComboBox, wx.Gauge)):
 		native.applyEraseBase(hwnd, None, False)
+	if isinstance(win, (wx.StaticBox, wx.RadioBox)):
+		native.applyStaticBox(hwnd, False)
+	if isinstance(win, wx.StaticLine):
+		native.applyStaticLine(hwnd, False)
 	if isinstance(win, wx.ListCtrl):
 		header = _SendMessage(hwnd, LVM_GETHEADER, 0, 0)
 		if header:
@@ -471,10 +479,17 @@ class DarkModeEngine:
 		self._timer.Start(self.POLL_MS)
 		self.refresh()
 
-	def stop(self):
+	def stop(self, restore: bool = True):
+		"""restore=False: NVDA is exiting. Take our hooks off the windows (they must not
+		outlive this module) but leave them looking dark: repainting everything light on the
+		way out showed as a white flash."""
 		self._timer.Stop()
 		self._app.Unbind(wx.EVT_WINDOW_CREATE, handler=self._onWindowCreate)
-		self._setActive(False)
+		if restore:
+			self._setActive(False)
+		else:
+			self._active = False
+			native.detachAll()
 
 	def refresh(self):
 		"""Re-evaluate settings/system state and apply the result."""
