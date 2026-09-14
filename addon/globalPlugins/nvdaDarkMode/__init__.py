@@ -40,10 +40,37 @@ def wantDark() -> bool:
 
 
 def setMode(mode: str):
-	"""Store a mode and apply it right away."""
+	"""Store a mode and apply it. Turning off also offers an NVDA restart: windows that
+	are open get put back in place, but a fresh start is the one true "native" state."""
+	plugin = GlobalPlugin.instance
+	wasActive = bool(plugin and plugin.engine.active)
 	config.conf[CONF_SECTION]["mode"] = mode
-	if GlobalPlugin.instance:
-		GlobalPlugin.instance.engine.refresh()
+	if plugin:
+		plugin.engine.refresh()
+	if mode == "off" and wasActive:
+		wx.CallAfter(offerRestart)
+
+
+def offerRestart():
+	try:
+		config.conf.save()
+	except Exception:
+		log.debugWarning("nvdaDarkMode: could not save config before restart", exc_info=True)
+	result = gui.messageBox(
+		# Translators: asked after dark mode is turned off.
+		_(
+			"Dark mode is now off. NVDA should restart so that every window comes back "
+			"in NVDA's own colours. Restart NVDA now?"
+		),
+		# Translators: title of the restart question shown after turning dark mode off.
+		_("NVDA Dark Mode"),
+		wx.YES_NO | wx.ICON_QUESTION,
+	)
+	if result == wx.YES:
+		import core
+		import queueHandler
+
+		queueHandler.queueFunction(queueHandler.eventQueue, core.restart)
 
 
 def toggle():
@@ -78,7 +105,7 @@ class DarkModeSettingsPanel(SettingsPanel):
 			self,
 			# Translators: explanatory text shown in the Dark Mode settings category.
 			label=_(
-				"Takes effect when you press OK or Apply. "
+				"Takes effect when you press OK or Apply; turning it off offers to restart NVDA. "
 				"Dark mode can also be toggled from the NVDA menu (Preferences > Dark mode) "
 				"or with a command you assign under Input Gestures, in the Dark Mode category. "
 				"It switches itself off while a Windows High Contrast theme is active."
