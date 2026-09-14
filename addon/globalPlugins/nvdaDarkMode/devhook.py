@@ -434,6 +434,32 @@ class DevHook:
 		"""Open the Set NVDA Update Mirror dialog (Settings > General > Change...)."""
 		self.v_click("NVDA Settings", "Change...")
 
+	def v_mode(self, mode="dark"):
+		"""Set the add-on's mode (dark|off|followSystem) and apply it, like the settings panel does."""
+		import globalPlugins.nvdaDarkMode as pkg
+
+		pkg.setMode(mode)
+		print("mode", mode, "-> active", self.plugin.engine.active)
+
+	def v_marks(self, titlePart):
+		"""Show the theming state stored on each control of a dialog (what restore would put back)."""
+		from . import theming
+
+		w = _findTLW(titlePart)
+		if not w:
+			print("no shown window with title containing", repr(titlePart))
+			return
+		n = 0
+		for c in _walk(w):
+			st = theming._states.get(c.GetHandle())
+			desc = None
+			if st:
+				desc = {k: (v.GetAsString(wx.C2S_HTML_SYNTAX) if v is not None else None) for k, v in st.items()}
+			print(f"{type(c).__name__:28s} own={c.UseBackgroundColour()} bg={c.GetBackgroundColour().GetAsString(wx.C2S_HTML_SYNTAX)} mark={desc}")
+			n += 1
+			if n >= 80:
+				break
+
 	def v_welcome(self):
 		"""Open NVDA's Welcome dialog the way Help > Welcome does."""
 		from gui.startupDialogs import WelcomeDialog

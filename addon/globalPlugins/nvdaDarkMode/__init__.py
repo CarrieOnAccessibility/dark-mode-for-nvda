@@ -1,8 +1,9 @@
 # NVDA Dark Mode add-on: global plugin entry point.
 #
 # Wires the theming engine (see theming.py) into NVDA: starts it at load,
-# adds a "Dark Mode" category to NVDA's Settings dialog, and provides a
-# toggle command that users can bind in Input Gestures.
+# adds a "Dark Mode" category to NVDA's Settings dialog, a check item in the
+# NVDA menu (Preferences > Dark mode), and a toggle command that users can
+# bind in Input Gestures.
 
 import addonHandler
 import config
@@ -28,10 +29,9 @@ except Exception:  # not running from an installed add-on (e.g. scratchpad)
 	pass
 
 CONF_SECTION = "nvdaDarkMode"
-# Order matters: index into MODES is what the settings panel's choice control uses.
-MODES = ("followSystem", "dark", "off")
+# "dark": on; "off": off; "followSystem" (config file only): dark while Windows uses dark mode for apps.
 config.conf.spec[CONF_SECTION] = {
-	"mode": "option('followSystem', 'dark', 'off', default='followSystem')",
+	"mode": "option('followSystem', 'dark', 'off', default='dark')",
 }
 
 
@@ -45,6 +45,31 @@ def wantDark() -> bool:
 	return theming.systemUsesDarkApps()
 
 
+def setMode(mode: str):
+	"""Store a mode and apply it right away."""
+	config.conf[CONF_SECTION]["mode"] = mode
+	if GlobalPlugin.instance:
+		GlobalPlugin.instance.engine.refresh()
+
+
+def toggle():
+	"""Switch dark mode on or off and say what happened; used by the menu item and the command."""
+	plugin = GlobalPlugin.instance
+	if not plugin:
+		return
+	if theming.highContrastActive():
+		# Translators: spoken when dark mode is toggled during a Windows High Contrast theme.
+		ui.message(_("Dark mode is unavailable while a Windows High Contrast theme is active"))
+		return
+	setMode("off" if plugin.engine.active else "dark")
+	if plugin.engine.active:
+		# Translators: spoken when NVDA's dark mode is switched on.
+		ui.message(_("NVDA dark mode on"))
+	else:
+		# Translators: spoken when NVDA's dark mode is switched off.
+		ui.message(_("NVDA dark mode off"))
+
+
 class DarkModeSettingsPanel(SettingsPanel):
 	# Translators: title of the Dark Mode category in the NVDA Settings dialog.
 	title = _("Dark Mode")
@@ -52,33 +77,24 @@ class DarkModeSettingsPanel(SettingsPanel):
 
 	def makeSettings(self, settingsSizer):
 		sHelper = guiHelper.BoxSizerHelper(self, sizer=settingsSizer)
-		# Translators: label of the combo box choosing when NVDA's interface is dark.
-		label = _("&Dark mode for NVDA's windows and menus:")
-		choices = [
-			# Translators: dark mode option: follow the Windows light/dark app setting.
-			_("Follow Windows setting"),
-			# Translators: dark mode option: always dark.
-			_("Always on"),
-			# Translators: dark mode option: never dark.
-			_("Off"),
-		]
-		self.modeChoice = sHelper.addLabeledControl(label, wx.Choice, choices=choices)
-		self.modeChoice.SetSelection(MODES.index(config.conf[CONF_SECTION]["mode"]))
+		# Translators: label of the check box that turns NVDA's dark mode on or off.
+		self.enabledCheckBox = sHelper.addItem(wx.CheckBox(self, label=_("&Dark mode for NVDA's windows and menus")))
+		self.enabledCheckBox.SetValue(config.conf[CONF_SECTION]["mode"] != "off")
 		note = wx.StaticText(
 			self,
 			# Translators: explanatory text shown in the Dark Mode settings category.
 			label=_(
-				"Dark mode switches itself off while a Windows High Contrast theme is active. "
-				"A command to toggle dark mode can be assigned under Input Gestures, in the Dark Mode category."
+				"Takes effect when you press OK or Apply. "
+				"Dark mode can also be toggled from the NVDA menu (Preferences > Dark mode) "
+				"or with a command you assign under Input Gestures, in the Dark Mode category. "
+				"It switches itself off while a Windows High Contrast theme is active."
 			),
 		)
 		note.Wrap(self.scaleSize(500))
 		sHelper.addItem(note)
 
 	def onSave(self):
-		config.conf[CONF_SECTION]["mode"] = MODES[self.modeChoice.GetSelection()]
-		if GlobalPlugin.instance:
-			GlobalPlugin.instance.engine.refresh()
+		setMode("dark" if self.enabledCheckBox.IsChecked() else "off")
 
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
@@ -90,14 +106,53 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		super().__init__()
 		GlobalPlugin.instance = self
 		self.engine = theming.DarkModeEngine(wantDark)
+		self.engine.onStateChanged = self._syncMenuItem
 		NVDASettingsDialog.categoryClasses.append(DarkModeSettingsPanel)
 		config.post_configProfileSwitch.register(self.onConfigChanged)
 		config.post_configReset.register(self.onConfigChanged)
+		self._menuItem = None
+		try:
+			self._addMenuItem()
+		except Exception:
+			log.exception("nvdaDarkMode: could not add the menu item")
 		try:
 			self.engine.start()
 		except Exception:
 			log.exception("nvdaDarkMode: engine failed to start")
+		self._syncMenuItem()
 		self._devhook = devhook.DevHook(self) if devhook else None
+
+	def _addMenuItem(self):
+		menu = gui.mainFrame.sysTrayIcon.preferencesMenu
+		self._menuItem = menu.AppendCheckItem(
+			wx.ID_ANY,
+			# Translators: check item in the NVDA menu (Preferences) that toggles dark mode.
+			_("Dar&k mode"),
+			# Translators: help text of the Dark mode item in the NVDA menu.
+			_("Turn dark mode for NVDA's windows and menus on or off"),
+		)
+		gui.mainFrame.sysTrayIcon.Bind(wx.EVT_MENU, self.onMenuItem, self._menuItem)
+
+	def _removeMenuItem(self):
+		if not self._menuItem:
+			return
+		try:
+			gui.mainFrame.sysTrayIcon.preferencesMenu.Remove(self._menuItem)
+		except Exception:
+			log.debugWarning("nvdaDarkMode: could not remove the menu item", exc_info=True)
+		self._menuItem = None
+
+	def _syncMenuItem(self):
+		"""Keep the menu item's check mark matching what is actually on screen."""
+		if self._menuItem:
+			try:
+				self._menuItem.Check(self.engine.active)
+			except Exception:
+				pass
+
+	def onMenuItem(self, evt):
+		toggle()
+		self._syncMenuItem()
 
 	def terminate(self):
 		if self._devhook:
@@ -108,6 +163,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			NVDASettingsDialog.categoryClasses.remove(DarkModeSettingsPanel)
 		except ValueError:
 			pass
+		self._removeMenuItem()
 		try:
 			import core
 
@@ -115,6 +171,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		except Exception:
 			exiting = False
 		try:
+			self.engine.onStateChanged = None
 			self.engine.stop(restore=not exiting)
 		except Exception:
 			log.exception("nvdaDarkMode: engine failed to stop cleanly")
@@ -129,15 +186,4 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		description=_("Toggles dark mode for NVDA's windows and menus"),
 	)
 	def script_toggleDarkMode(self, gesture):
-		if theming.highContrastActive():
-			# Translators: spoken when the toggle command is used during a Windows High Contrast theme.
-			ui.message(_("Dark mode is unavailable while a Windows High Contrast theme is active"))
-			return
-		config.conf[CONF_SECTION]["mode"] = "off" if self.engine.active else "dark"
-		self.engine.refresh()
-		if self.engine.active:
-			# Translators: spoken when NVDA's dark mode is switched on.
-			ui.message(_("NVDA dark mode on"))
-		else:
-			# Translators: spoken when NVDA's dark mode is switched off.
-			ui.message(_("NVDA dark mode off"))
+		toggle()

@@ -242,7 +242,20 @@ _FIELD_TYPES = (
 	wx.SpinCtrlDouble,
 )
 
-MARK = "_nvdaDarkMode"
+# Original colours per window HANDLE. Not an attribute on the wx object: windows that wx
+# creates on the C++ side (a wx.StaticBoxSizer's box, for one) get a fresh Python wrapper
+# every time they are looked up, so anything stored on the wrapper is lost.
+_states = {}
+
+
+def forgetWindow(hwnd):
+	_states.pop(hwnd, None)
+
+
+def pruneStates():
+	"""Drop entries for windows that no longer exist."""
+	for h in [h for h in _states if not _IsWindow(h)]:
+		_states.pop(h, None)
 
 
 def _nativeThemeFor(win, hwnd) -> str:
@@ -402,7 +415,7 @@ def themeWindow(win: wx.Window, dark: bool = True, force: bool = False):
 		return
 	if not hwnd:
 		return
-	state = getattr(win, MARK, None)
+	state = _states.get(hwnd)
 	if dark:
 		if state is not None and not force:
 			return
@@ -412,12 +425,12 @@ def themeWindow(win: wx.Window, dark: bool = True, force: bool = False):
 				"bg": win.GetBackgroundColour() if win.UseBackgroundColour() else None,
 				"fg": win.GetForegroundColour() if win.UseForegroundColour() else None,
 			}
-			setattr(win, MARK, state)
+			_states[hwnd] = state
 		_applyDark(win, hwnd)
 	else:
 		if state is None:
 			return
-		delattr(win, MARK)
+		_states.pop(hwnd, None)
 		_restoreLight(win, hwnd, state)
 	if win.IsShownOnScreen():
 		win.Refresh()
@@ -463,6 +476,7 @@ class DarkModeEngine:
 		"""
 		self._wantDark = wantDark
 		self._active = False
+		self.onStateChanged = None  # optional callable, run after dark mode turns on or off
 		self._app = wx.GetApp()
 		self._timer = wx.Timer()
 		self._timer.Bind(wx.EVT_TIMER, self._onPoll)
@@ -482,6 +496,7 @@ class DarkModeEngine:
 
 	def start(self):
 		self._app.Bind(wx.EVT_WINDOW_CREATE, self._onWindowCreate)
+		self._app.Bind(wx.EVT_WINDOW_DESTROY, self._onWindowDestroy)
 		self._timer.Start(self.POLL_MS)
 		self.refresh()
 
@@ -491,6 +506,8 @@ class DarkModeEngine:
 		way out showed as a white flash."""
 		self._timer.Stop()
 		self._app.Unbind(wx.EVT_WINDOW_CREATE, handler=self._onWindowCreate)
+		self._app.Unbind(wx.EVT_WINDOW_DESTROY, handler=self._onWindowDestroy)
+		_states.clear()
 		if restore:
 			self._setActive(False)
 		else:
@@ -512,6 +529,19 @@ class DarkModeEngine:
 			native.installMenuHook()
 		else:
 			native.detachAll()
+		if self.onStateChanged:
+			try:
+				self.onStateChanged()
+			except Exception:
+				log.exception("nvdaDarkMode: state change callback failed")
+
+	def _onWindowDestroy(self, event):
+		event.Skip()
+		win = event.GetWindow()
+		try:
+			forgetWindow(win.GetHandle())
+		except Exception:
+			pass
 
 	def _onWindowCreate(self, event):
 		event.Skip()
@@ -550,6 +580,7 @@ class DarkModeEngine:
 
 	def _onPoll(self, event):
 		try:
+			pruneStates()
 			self.refresh()
 		except Exception:
 			log.exception("nvdaDarkMode: poll failed")

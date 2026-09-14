@@ -7,17 +7,15 @@
 <body>
 <h1>NVDA Dark Mode</h1>
 <p>Makes NVDA's own interface dark: the NVDA menu, the Settings dialog, the Add-on Store, message boxes and every other NVDA window.</p>
-<h2>Settings</h2>
-<p>Open NVDA's Settings dialog and choose the <strong>Dark Mode</strong> category. The one setting is when dark mode applies:</p>
+<h2>Turning it on and off</h2>
+<p>Three ways, all equivalent:</p>
 <ul>
-<li><strong>Follow Windows setting</strong> (default): dark when Windows is set to dark mode for apps, light otherwise.</li>
-<li><strong>Always on</strong></li>
-<li><strong>Off</strong></li>
+<li><strong>NVDA menu &gt; Preferences &gt; Dark mode</strong>: a check item; choosing it switches dark mode on or off immediately.</li>
+<li><strong>NVDA menu &gt; Preferences &gt; Settings &gt; Dark Mode</strong>: the check box <strong>Dark mode for NVDA's windows and menus</strong>. Like every NVDA setting, it takes effect when you press OK or Apply.</li>
+<li>A command called <strong>Toggles dark mode for NVDA's windows and menus</strong> in NVDA's Input Gestures dialog, under the <strong>Dark Mode</strong> category. It has no key assigned by default.</li>
 </ul>
-<p>Dark mode switches itself off while a Windows High Contrast theme is active, so it never fights your contrast theme.</p>
-<h2>Toggle command</h2>
-<p>A command called <strong>Toggles dark mode for NVDA's windows and menus</strong> is available in NVDA's Input Gestures dialog, under the <strong>Dark Mode</strong> category. It has no key assigned by default.</p>
+<p>Dark mode switches itself off while a Windows High Contrast theme is active, so it never fights your contrast theme. Switching it off puts NVDA's windows back exactly as they were, including any that are open at the time.</p>
 <h2>How it works, and its limits</h2>
-<p>NVDA's interface is drawn by a toolkit (wxPython) that has no dark mode of its own, so this add-on asks Windows directly, using the same unofficial switches File Explorer and other apps use. Most of the interface goes dark. A few pieces Windows draws itself may stay light, for example slider tracks. When NVDA gains built-in dark mode, this add-on can be retired.</p>
+<p>NVDA's interface is drawn by a toolkit (wxPython) that has no dark mode of its own, so this add-on asks Windows directly, using the same unofficial switches File Explorer and other apps use. Most of the interface goes dark. A few pieces Windows draws itself stay light, for example the small progress box shown while checking for updates. When NVDA gains built-in dark mode, this add-on can be retired.</p>
 </body>
 </html>
