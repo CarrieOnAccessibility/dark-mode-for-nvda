@@ -358,6 +358,11 @@ CDRF_DODEFAULT = 0x0
 CDRF_SKIPDEFAULT = 0x4
 CDRF_NOTIFYITEMDRAW = 0x20
 TBCD_CHANNEL = 0x3
+TBCD_THUMB = 0x2
+TBM_GETTHUMBRECT = 0x0400 + 25
+CDIS_SELECTED = 0x0001
+CDIS_DISABLED = 0x0004
+CDIS_HOT = 0x0040
 WM_WINDOWPOSCHANGED = 0x0047
 WS_CAPTION = 0x00C00000
 _ExcludeClipRect = _gdi32.ExcludeClipRect
@@ -435,6 +440,7 @@ ID_SHOWPAINT = 10  # top-level windows: paint everything synchronously the momen
 ID_STATICBOX = 11  # group boxes (wx.StaticBox / wx.RadioBox): our own border and label
 ID_STATICLINE = 12  # wx.StaticLine: one soft line instead of the etched white/grey pair
 ID_RADIO = 13  # radio buttons: theme glyph plus a label we draw (the dark theme has no light radio text)
+ID_SLIDER = 14  # trackbars: track whether the mouse is over the thumb (custom draw does not say)
 
 
 def colorref(rgb):
@@ -449,7 +455,11 @@ FRAME_INNER = (0x2B, 0x2B, 0x2B)  # covers the theme's inner white line (matches
 PARENT_BG = (0x20, 0x20, 0x20)  # dialog background, shows behind rounded button corners
 GRIP_DOT = (0x62, 0x62, 0x62)  # size grip dots: visible if you look for them, nothing more
 LAYOUT_LINE = (0x8C, 0x8C, 0x8C)  # structure, not controls: panel frames, group boxes, separators, under the title bar
-SLIDER_TRACK = (0x8C, 0x8C, 0x8C)  # the groove a slider thumb runs in (the thumb itself is left to Windows)
+SLIDER_TRACK = (0x8C, 0x8C, 0x8C)  # the groove a slider thumb runs in
+SLIDER_THUMB = (0x00, 0x78, 0xD7)  # the thumb, as Windows drew it
+SLIDER_THUMB_HOT = (0x60, 0xCD, 0xFF)  # hovered: the accent blue (Windows painted it black)
+SLIDER_THUMB_PRESSED = (0x00, 0x5F, 0xB8)
+SLIDER_THUMB_DISABLED = (0x70, 0x70, 0x70)
 MENUBAR_BG = (0x20, 0x20, 0x20)  # menu bar strip (log viewer, Python console): same as the window
 MENUBAR_HOT_BG = (0x3A, 0x3A, 0x3A)  # menu bar item under the mouse / open
 MENUBAR_TEXT = (0xFF, 0xFF, 0xFF)
@@ -840,6 +850,32 @@ def _drawSliderChannel(hwnd, hdc, rc):
 	_DeleteObject(brush)
 
 
+def _drawSliderThumb(hwnd, hdc, rc, state):
+	"""The thumb as a rounded pill: Windows' blue, accent blue when hovered (Windows drew it black)."""
+	if not _IsWindowEnabled(hwnd) or state & CDIS_DISABLED:
+		colour = SLIDER_THUMB_DISABLED
+	elif state & CDIS_SELECTED:
+		colour = SLIDER_THUMB_PRESSED
+	elif state & CDIS_HOT or _sliderHot.get(hwnd):
+		colour = SLIDER_THUMB_HOT
+	else:
+		colour = SLIDER_THUMB
+	# clear what the theme may have painted underneath
+	bg = _CreateSolidBrush(colorref(PARENT_BG))
+	_FillRect(hdc, ctypes.byref(rc), bg)
+	_DeleteObject(bg)
+	radius = max(2, min(rc.right - rc.left, rc.bottom - rc.top) // 2)
+	brush = _CreateSolidBrush(colorref(colour))
+	pen = _CreatePen(PS_SOLID, 1, colorref(colour))
+	oldBrush = _SelectObject(hdc, brush)
+	oldPen = _SelectObject(hdc, pen)
+	_RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, radius, radius)
+	_SelectObject(hdc, oldPen)
+	_SelectObject(hdc, oldBrush)
+	_DeleteObject(pen)
+	_DeleteObject(brush)
+
+
 def _paintCheckItem(dis):
 	"""Draw one wx.CheckListBox row: background, check box glyph, label."""
 	win = _checkLists.get(dis.hwndItem)
@@ -1187,6 +1223,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 			_eraseColours.pop(hwnd, None)
 			_frameColours.pop(hwnd, None)
 			_sliders.discard(hwnd)
+			_sliderHot.pop(hwnd, None)
 			_boxRects.pop(hwnd, None)
 			_framePending.discard(hwnd)
 			_tabHot.pop(hwnd, None)
@@ -1203,8 +1240,10 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 					if cd.dwDrawStage == CDDS_PREPAINT:
 						return CDRF_NOTIFYITEMDRAW
 					if cd.dwDrawStage == CDDS_ITEMPREPAINT and cd.dwItemSpec == TBCD_CHANNEL:
-						# Only the groove; the thumb and tick marks stay Windows-drawn.
 						_drawSliderChannel(hdr.hwndFrom, cd.hdc, cd.rc)
+						return CDRF_SKIPDEFAULT
+					if cd.dwDrawStage == CDDS_ITEMPREPAINT and cd.dwItemSpec == TBCD_THUMB:
+						_drawSliderThumb(hdr.hwndFrom, cd.hdc, cd.rc, cd.uItemState)
 						return CDRF_SKIPDEFAULT
 					return CDRF_DODEFAULT
 		if idSubclass == ID_FRAME:
@@ -1295,6 +1334,20 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 				_cleanUpAfterBoxMove(hwnd)
 				return res
+		elif idSubclass == ID_SLIDER:
+			if msg == WM_MOUSEMOVE:
+				rc = RECT()
+				_SendMessageW(hwnd, TBM_GETTHUMBRECT, 0, ctypes.addressof(rc))
+				x, y = lParam & 0xFFFF, (lParam >> 16) & 0xFFFF
+				hot = rc.left <= x < rc.right and rc.top <= y < rc.bottom
+				if _sliderHot.get(hwnd, False) != hot:
+					_sliderHot[hwnd] = hot
+					_InvalidateRect(hwnd, None, False)
+				tme = TRACKMOUSEEVENT(ctypes.sizeof(TRACKMOUSEEVENT), TME_LEAVE, hwnd, 0)
+				_user32.TrackMouseEvent(ctypes.byref(tme))
+			elif msg == WM_MOUSELEAVE:
+				if _sliderHot.pop(hwnd, None):
+					_InvalidateRect(hwnd, None, False)
 		elif idSubclass == ID_RADIO:
 			if msg == WM_PAINT:
 				_paintRadio(hwnd)
@@ -1398,6 +1451,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 
 
 _sliders = set()  # trackbar hwnds whose channel we draw (their parent carries ID_OWNERDRAW)
+_sliderHot = {}  # trackbar hwnd -> mouse is over its thumb
 _boxRects = {}  # group box hwnd -> last known window rect (screen coords), to clean up after a move
 _eraseColours = {}  # hwnd -> rgb laid down on WM_ERASEBKGND (ID_ERASE)
 _frameColours = {}  # hwnd -> frame colour when not focused (ID_FRAME); default BORDER
@@ -1591,8 +1645,11 @@ def registerSlider(hwnd, hwndParent, dark: bool):
 	if dark:
 		_sliders.add(hwnd)
 		_attach(hwndParent, ID_OWNERDRAW)
+		_attach(hwnd, ID_SLIDER)
 	else:
 		_sliders.discard(hwnd)
+		_sliderHot.pop(hwnd, None)
+		_detach(hwnd, ID_SLIDER)
 	if _IsWindow(hwnd):
 		_InvalidateRect(hwnd, None, True)
 
@@ -1679,6 +1736,7 @@ def detachAll():
 	_eraseColours.clear()
 	_frameColours.clear()
 	_sliders.clear()
+	_sliderHot.clear()
 	_boxRects.clear()
 	_checkLists.clear()
 	_tabHot.clear()

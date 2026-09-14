@@ -848,6 +848,44 @@ class DevHook:
 				native._ReleaseDC(h, hdc)
 			print("%#x %r style=%#x -> brush=%#x textColour=%#06x bk=%#06x" % (h, txt, _user32.GetWindowLongW(h, -16) & 0xFF, brush, tc, bk))
 
+	def v_slidersim(self, titlePart, name="slider-sim"):
+		"""Send the first slider WM_MOUSEMOVE over its thumb, then WM_MOUSELEAVE, measuring the thumb each time."""
+		from PIL import ImageGrab
+		from collections import Counter
+
+		from . import native
+
+		w = _findTLW(titlePart)
+		if not w:
+			print("no shown window with title containing", repr(titlePart))
+			return
+		sl = next((c for c in _walk(w) if isinstance(c, wx.Slider) and c.IsShownOnScreen()), None)
+		if not sl:
+			print("no slider")
+			return
+		h = sl.GetHandle()
+		rc = native.RECT()
+		native._SendMessageW(h, 0x0400 + 25, 0, ctypes.addressof(rc))  # TBM_GETTHUMBRECT
+		cx, cy = (rc.left + rc.right) // 2, (rc.top + rc.bottom) // 2
+		l, t, r, b = _hwndRect(h)
+
+		def measure(tag):
+			img = ImageGrab.grab(bbox=(l, t, r, b), all_screens=True)
+			print(tag, Counter(img.getdata()).most_common(4))
+
+		import time
+
+		measure("idle:  ")
+		native._SendMessageW(h, 0x0200, 0, (cy << 16) | cx)  # WM_MOUSEMOVE over the thumb
+		_user32.UpdateWindow(h)
+		time.sleep(0.15)
+		measure("hover: ")
+		native._SendMessageW(h, 0x02A3, 0, 0)  # WM_MOUSELEAVE
+		_user32.UpdateWindow(h)
+		time.sleep(0.15)
+		measure("leave: ")
+		print("thumb rect", (rc.left, rc.top, rc.right, rc.bottom))
+
 	def v_welcome(self):
 		"""Open NVDA's Welcome dialog the way Help > Welcome does."""
 		from gui.startupDialogs import WelcomeDialog
