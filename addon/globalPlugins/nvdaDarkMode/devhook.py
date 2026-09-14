@@ -168,6 +168,8 @@ class DevHook:
 			"logviewer": "onViewLogCommand",
 			"exit": "onExitCommand",
 			"welcome": "onWelcomeCommand",
+			"update": "onCheckForUpdateCommand",
+			"console": "onPythonConsoleCommand",
 		}
 		name = actions.get(which)
 		if not name:
@@ -325,6 +327,115 @@ class DevHook:
 		self._later = wx.CallLater(4000, finish)
 		lines.append("%7.1f ms  opening %s %s" % (now() * 1000, verb, arg))
 		getattr(self, "v_" + verb)(arg)
+
+	def v_census(self, seconds="3", name="census"):
+		"""For N seconds, record every visible top-level window of this process that appears:
+		hwnd, class, title, thread, whether wx knows it. Runs in a thread so the main thread is free."""
+		import threading
+		import time
+		from ctypes import wintypes
+
+		EnumProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+		pid = os.getpid()
+		seen = {}
+		lines = []
+		t0 = time.perf_counter()
+		mainThread = ctypes.windll.kernel32.GetCurrentThreadId()
+
+		def info(h):
+			buf = ctypes.create_unicode_buffer(128)
+			_user32.GetClassNameW(h, buf, 128)
+			cls = buf.value
+			_user32.GetWindowTextW(h, buf, 128)
+			title = buf.value
+			tid = _user32.GetWindowThreadProcessId(h, None)
+			return cls, title, tid
+
+		def poll():
+			while time.perf_counter() - t0 < float(seconds):
+				found = []
+
+				@EnumProc
+				def cb(h, _):
+					p = wintypes.DWORD()
+					_user32.GetWindowThreadProcessId(h, ctypes.byref(p))
+					if p.value == pid and _user32.IsWindowVisible(h):
+						found.append(h)
+					return True
+
+				_user32.EnumWindows(cb, 0)
+				for h in found:
+					if h not in seen:
+						cls, title, tid = info(h)
+						seen[h] = True
+						lines.append("%6.0f ms hwnd=%#x class=%r title=%r thread=%s" % ((time.perf_counter() - t0) * 1000, h, cls, title, "main" if tid == mainThread else tid))
+				time.sleep(0.02)
+			os.makedirs(SHOTS_DIR, exist_ok=True)
+			with open(_shotPath(name + ".txt").replace(".png", ""), "w", encoding="utf-8") as f:
+				f.write("\n".join(lines))
+
+		threading.Thread(target=poll, daemon=True).start()
+		print("census running for", seconds, "s")
+
+	def v_commands(self):
+		"""List the on*Command handlers NVDA's main frame offers (for the dialog verb)."""
+		import gui
+
+		print(sorted(n for n in dir(gui.mainFrame) if n.startswith("on") and n.endswith("Command")))
+		try:
+			import gui.startupDialogs as sd
+
+			print("startupDialogs:", [n for n in dir(sd) if "Dialog" in n])
+		except Exception as e:
+			print("startupDialogs:", e)
+
+	def v_boxtrace(self, name="boxtrace"):
+		"""Open the Welcome dialog while logging every group-box draw: when, which message,
+		where the box was, whether its dialog was visible. Finds draws at stale positions."""
+		import time
+
+		from . import native
+		from gui.startupDialogs import WelcomeDialog
+
+		t0 = time.perf_counter()
+		lines = []
+		orig = native._drawStaticBox
+
+		def traced(hwnd, hdc, excludeChildren=True):
+			r = _RECT()
+			_user32.GetWindowRect(hwnd, ctypes.byref(r))
+			top = _user32.GetAncestor(hwnd, 2)  # GA_ROOT
+			lines.append("%7.1f ms box=%#x rect=(%d,%d %dx%d) erase=%s topVisible=%s" % (
+				(time.perf_counter() - t0) * 1000, hwnd, r.l, r.t, r.r - r.l, r.b - r.t, not excludeChildren, bool(_user32.IsWindowVisible(top))))
+			return orig(hwnd, hdc, excludeChildren)
+
+		native._drawStaticBox = traced
+		origClean = native._cleanUpAfterBoxMove
+
+		def tracedClean(hwnd):
+			before = native._boxRects.get(hwnd)
+			origClean(hwnd)
+			lines.append("%7.1f ms CLEANUP box=%#x old=%r new=%r" % ((time.perf_counter() - t0) * 1000, hwnd, before, native._boxRects.get(hwnd)))
+
+		native._cleanUpAfterBoxMove = tracedClean
+
+		def finish():
+			native._drawStaticBox = orig
+			native._cleanUpAfterBoxMove = origClean
+			os.makedirs(SHOTS_DIR, exist_ok=True)
+			with open(_shotPath(name + ".txt").replace(".png", ""), "w", encoding="utf-8") as f:
+				f.write(chr(10).join(lines))
+
+		self._later = wx.CallLater(4000, finish)
+		wx.CallAfter(WelcomeDialog.run)
+		print("box trace running")
+
+	def v_welcome(self):
+		"""Open NVDA's Welcome dialog the way Help > Welcome does."""
+		from gui.startupDialogs import WelcomeDialog
+
+		wx.CallAfter(WelcomeDialog.run)
+		print("opening welcome")
 
 	def v_menutrace(self, name="menutrace"):
 		"""Pop the NVDA menu with a thread-local CBT hook that subclasses the popup menu
@@ -504,6 +615,16 @@ class DevHook:
 			except Exception:
 				continue
 		print("no control", repr(label))
+
+	def v_hoverat(self, titlePart, dx, dy):
+		"""Move the mouse to (dx, dy) pixels from the dialog's top-left (e.g. onto a scrollbar)."""
+		w = _findTLW(titlePart)
+		if not w:
+			print("no shown window with title containing", repr(titlePart))
+			return
+		r = _hwndRect(w.GetHandle())
+		_user32.SetCursorPos(r[0] + int(dx), r[1] + int(dy))
+		print("hovering at", dx, dy)
 
 	def v_probe(self, titlePart, types="ListCtrl,CheckListBox,ListBox,TreeCtrl,TextCtrl,Button,Notebook,CheckBox,RadioButton,StaticText,Choice"):
 		"""Report actual pixel colours (background, text-ish, left edge) of controls in a dialog."""

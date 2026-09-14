@@ -144,6 +144,66 @@ class NMCUSTOMDRAW(ctypes.Structure):
 	]
 
 
+# Menu bar drawing hooks. Windows sends these undocumented "UAH" messages to a window
+# with a menu bar so that themed apps can draw the bar themselves; the menu items are
+# untouched (still in the HMENU, still read by screen readers), only the pixels change.
+WM_UAHDRAWMENU = 0x0091
+WM_UAHDRAWMENUITEM = 0x0092
+WM_NCACTIVATE = 0x0086
+OBJID_MENU = 0xFFFFFFFD
+MIIM_STRING = 0x0040
+ODS_SELECTED = 0x0001
+ODS_GRAYED = 0x0002
+ODS_DISABLED = 0x0004
+ODS_HOTLIGHT = 0x0040
+ODS_INACTIVE = 0x0080
+ODS_NOACCEL = 0x0100
+
+
+class UAHMENU(ctypes.Structure):
+	_fields_ = [("hmenu", HANDLE), ("hdc", HANDLE), ("dwFlags", wintypes.DWORD)]
+
+
+class UAHDRAWMENUITEM(ctypes.Structure):
+	_fields_ = [("dis", DRAWITEMSTRUCT), ("um", UAHMENU), ("iPosition", ctypes.c_int)]
+
+
+class MENUBARINFO(ctypes.Structure):
+	_fields_ = [
+		("cbSize", wintypes.DWORD),
+		("rcBar", RECT),
+		("hMenu", HANDLE),
+		("hwndMenu", wintypes.HWND),
+		("flags", wintypes.DWORD),
+	]
+
+
+class MENUITEMINFOW(ctypes.Structure):
+	_fields_ = [
+		("cbSize", wintypes.UINT),
+		("fMask", wintypes.UINT),
+		("fType", wintypes.UINT),
+		("fState", wintypes.UINT),
+		("wID", wintypes.UINT),
+		("hSubMenu", HANDLE),
+		("hbmpChecked", HANDLE),
+		("hbmpUnchecked", HANDLE),
+		("dwItemData", ctypes.c_size_t),
+		("dwTypeData", wintypes.LPWSTR),
+		("cch", wintypes.UINT),
+		("hbmpItem", HANDLE),
+	]
+
+
+_GetMenu = _user32.GetMenu
+_GetMenu.argtypes = (wintypes.HWND,)
+_GetMenu.restype = HANDLE
+_GetMenuBarInfo = _user32.GetMenuBarInfo
+_GetMenuBarInfo.argtypes = (wintypes.HWND, ctypes.c_long, ctypes.c_long, ctypes.POINTER(MENUBARINFO))
+_GetMenuItemInfoW = _user32.GetMenuItemInfoW
+_GetMenuItemInfoW.argtypes = (HANDLE, wintypes.UINT, wintypes.BOOL, ctypes.POINTER(MENUITEMINFOW))
+
+
 class PAINTSTRUCT(ctypes.Structure):
 	_fields_ = [
 		("hdc", HANDLE),
@@ -381,6 +441,10 @@ PARENT_BG = (0x20, 0x20, 0x20)  # dialog background, shows behind rounded button
 GRIP_DOT = (0x62, 0x62, 0x62)  # size grip dots: visible if you look for them, nothing more
 LAYOUT_LINE = (0x8C, 0x8C, 0x8C)  # structure, not controls: panel frames, group boxes, separators, under the title bar
 SLIDER_TRACK = (0x8C, 0x8C, 0x8C)  # the groove a slider thumb runs in (the thumb itself is left to Windows)
+MENUBAR_BG = (0x20, 0x20, 0x20)  # menu bar strip (log viewer, Python console): same as the window
+MENUBAR_HOT_BG = (0x3A, 0x3A, 0x3A)  # menu bar item under the mouse / open
+MENUBAR_TEXT = (0xFF, 0xFF, 0xFF)
+MENUBAR_DISABLED_TEXT = (0x9C, 0x9C, 0x9C)
 TITLE_SEPARATOR = (0x70, 0x70, 0x70)  # the line where the title bar meets the dialog: a step darker than the layout lines
 MENU_BG = (0x2C, 0x2C, 0x2C)  # what Windows paints dark popup menus with (measured); used only for the erase
 BTN_FACE = (0x33, 0x33, 0x33)
@@ -569,12 +633,18 @@ def _paintStaticBox(hwnd):
 	_paintWith(hwnd, _drawStaticBox)
 
 
-def _drawStaticBox(hwnd, hdc):
-	"""Group box: soft one-pixel frame, label breaking the top edge, like Windows draws it."""
+def _drawStaticBox(hwnd, hdc, excludeChildren=True):
+	"""Group box: soft one-pixel frame, label breaking the top edge, like Windows draws it.
+
+	excludeChildren is for our own WM_PAINT only. WM_ERASEBKGND also arrives on behalf of a
+	transparent child (check box, label) that wants the background painted UNDER it, via
+	DrawThemeParentBackground; excluding children there leaves that child unerased.
+	"""
 	rc = RECT()
 	_GetClientRect(hwnd, ctypes.byref(rc))
 	w, h = rc.right, rc.bottom
-	_excludeChildren(hwnd, hdc)
+	if excludeChildren:
+		_excludeChildren(hwnd, hdc)
 	bg = _CreateSolidBrush(colorref(PARENT_BG))
 	_FillRect(hdc, ctypes.byref(rc), bg)
 	dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
@@ -639,6 +709,98 @@ def _drawStaticLine(hwnd, hdc):
 	line = _CreateSolidBrush(colorref(LAYOUT_LINE))
 	_FillRect(hdc, ctypes.byref(r), line)
 	_DeleteObject(line)
+
+
+def _menuBarRect(hwnd):
+	"""The menu bar rectangle in window coordinates, or None if the window has no menu bar."""
+	if not _GetMenu(hwnd):
+		return None
+	mbi = MENUBARINFO()
+	mbi.cbSize = ctypes.sizeof(mbi)
+	if not _GetMenuBarInfo(hwnd, ctypes.c_long(-3), 0, ctypes.byref(mbi)):  # OBJID_MENU
+		return None
+	wr = RECT()
+	_GetWindowRect(hwnd, ctypes.byref(wr))
+	return RECT(mbi.rcBar.left - wr.left, mbi.rcBar.top - wr.top, mbi.rcBar.right - wr.left, mbi.rcBar.bottom - wr.top)
+
+
+def _drawMenuBar(hwnd, um):
+	rc = _menuBarRect(hwnd)
+	if rc is None:
+		return False
+	brush = _CreateSolidBrush(colorref(MENUBAR_BG))
+	_FillRect(um.hdc, ctypes.byref(rc), brush)
+	_DeleteObject(brush)
+	return True
+
+
+def _drawMenuBarItem(hwnd, dmi):
+	dis = dmi.dis
+	state = dis.itemState
+	mii = MENUITEMINFOW()
+	mii.cbSize = ctypes.sizeof(mii)
+	mii.fMask = MIIM_STRING
+	buf = ctypes.create_unicode_buffer(256)
+	mii.dwTypeData = ctypes.cast(buf, wintypes.LPWSTR)
+	mii.cch = 255
+	_GetMenuItemInfoW(dmi.um.hmenu, dmi.iPosition, True, ctypes.byref(mii))
+	hot = bool(state & (ODS_HOTLIGHT | ODS_SELECTED)) and not (state & ODS_INACTIVE)
+	bg = _CreateSolidBrush(colorref(MENUBAR_HOT_BG if hot else MENUBAR_BG))
+	_FillRect(dis.hDC, ctypes.byref(dis.rcItem), bg)
+	_DeleteObject(bg)
+	text = MENUBAR_DISABLED_TEXT if state & (ODS_GRAYED | ODS_DISABLED | ODS_INACTIVE) else MENUBAR_TEXT
+	_SetBkMode(dis.hDC, TRANSPARENT)
+	_SetTextColor(dis.hDC, colorref(text))
+	flags = DT_CENTER | DT_VCENTER | DT_SINGLELINE
+	if state & ODS_NOACCEL:
+		flags |= DT_HIDEPREFIX
+	_DrawTextW(dis.hDC, buf, -1, ctypes.byref(dis.rcItem), flags)
+
+
+def _drawMenuBarBottomLine(hwnd):
+	"""Windows paints a light line under the menu bar after WM_NCPAINT; cover it."""
+	rc = _menuBarRect(hwnd)
+	if rc is None:
+		return
+	hdc = _GetWindowDC(hwnd)
+	if not hdc:
+		return
+	try:
+		line = RECT(rc.left, rc.bottom, rc.right, rc.bottom + 1)
+		brush = _CreateSolidBrush(colorref(MENUBAR_BG))
+		_FillRect(hdc, ctypes.byref(line), brush)
+		_DeleteObject(brush)
+	finally:
+		_ReleaseDC(hwnd, hdc)
+
+
+def _boxRectInParent(hwnd):
+	"""The box's rectangle in its parent's client coordinates (the dialog itself may move)."""
+	parent = _user32.GetParent(hwnd)
+	if not parent:
+		return None
+	r = RECT()
+	_GetWindowRect(hwnd, ctypes.byref(r))
+	tl = wintypes.POINT(r.left, r.top)
+	br = wintypes.POINT(r.right, r.bottom)
+	_user32.ScreenToClient(parent, ctypes.byref(tl))
+	_user32.ScreenToClient(parent, ctypes.byref(br))
+	return (tl.x, tl.y, br.x, br.y)
+
+
+def _cleanUpAfterBoxMove(hwnd):
+	new = _boxRectInParent(hwnd)
+	if new is None:
+		return
+	old = _boxRects.get(hwnd)
+	_boxRects[hwnd] = new
+	if old is None or old == new:
+		return
+	# Siblings that overlapped the old spot carry our stale pixels with them when THEY move
+	# (Windows copies a moved window's bits instead of repainting), and by now they may
+	# already have moved. Invalidations only accumulate until the next paint, so simply
+	# repaint the parent and everything in it.
+	_RedrawWindow(_user32.GetParent(hwnd), None, None, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN)
 
 
 def _drawTitleSeparator(hwnd, hdc):
@@ -952,6 +1114,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 			_eraseColours.pop(hwnd, None)
 			_frameColours.pop(hwnd, None)
 			_sliders.discard(hwnd)
+			_boxRects.pop(hwnd, None)
 			_framePending.discard(hwnd)
 			_tabHot.pop(hwnd, None)
 			return _DefSubclassProc(hwnd, msg, wParam, lParam)
@@ -1044,11 +1207,18 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				_paintStaticBox(hwnd)
 				return 0
 			if msg == WM_ERASEBKGND:
-				_drawStaticBox(hwnd, wParam)
+				_drawStaticBox(hwnd, wParam, excludeChildren=False)
 				return 1
 			if msg in (WM_ENABLE, WM_UPDATEUISTATE):
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 				_InvalidateRect(hwnd, None, False)
+				return res
+			if msg == WM_WINDOWPOSCHANGED:
+				# Dialogs can be visible while still being laid out (NVDA's Welcome dialog is),
+				# so the box gets painted at a provisional spot and then moved. Windows leaves
+				# our old frame and label behind on siblings (labels don't repaint); clean up.
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				_cleanUpAfterBoxMove(hwnd)
 				return res
 		elif idSubclass == ID_STATICLINE:
 			if msg == WM_NCPAINT:
@@ -1061,6 +1231,17 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 			if msg == WM_ERASEBKGND:
 				return 1
 		elif idSubclass == ID_SHOWPAINT:
+			if msg == WM_UAHDRAWMENU:
+				if _drawMenuBar(hwnd, UAHMENU.from_address(lParam)):
+					return 0
+			elif msg == WM_UAHDRAWMENUITEM:
+				if _GetMenu(hwnd):
+					_drawMenuBarItem(hwnd, UAHDRAWMENUITEM.from_address(lParam))
+					return 0
+			elif msg in (WM_NCPAINT, WM_NCACTIVATE):
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				_drawMenuBarBottomLine(hwnd)
+				return res
 			if msg == WM_ERASEBKGND:
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 				_drawTitleSeparator(hwnd, wParam)
@@ -1122,6 +1303,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 
 
 _sliders = set()  # trackbar hwnds whose channel we draw (their parent carries ID_OWNERDRAW)
+_boxRects = {}  # group box hwnd -> last known window rect (screen coords), to clean up after a move
 _eraseColours = {}  # hwnd -> rgb laid down on WM_ERASEBKGND (ID_ERASE)
 _frameColours = {}  # hwnd -> frame colour when not focused (ID_FRAME); default BORDER
 _subclassProc = _SUBCLASSPROC(_proc)  # must stay alive for as long as any window is subclassed
@@ -1270,8 +1452,13 @@ def applyShowPaint(hwnd, dark: bool):
 def applyStaticBox(hwnd, dark: bool):
 	if dark:
 		_attach(hwnd, ID_STATICBOX)
+		if hwnd not in _boxRects and _IsWindow(hwnd):
+			rc = _boxRectInParent(hwnd)
+			if rc:
+				_boxRects[hwnd] = rc
 	else:
 		_detach(hwnd, ID_STATICBOX)
+		_boxRects.pop(hwnd, None)
 	if _IsWindow(hwnd):
 		_InvalidateRect(hwnd, None, True)
 
@@ -1372,6 +1559,7 @@ def detachAll():
 	_eraseColours.clear()
 	_frameColours.clear()
 	_sliders.clear()
+	_boxRects.clear()
 	_checkLists.clear()
 	_tabHot.clear()
 	for hwnd, ids in list(_subclassed.items()):
