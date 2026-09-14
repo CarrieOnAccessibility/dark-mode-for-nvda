@@ -75,6 +75,7 @@ _EnumChildWindows.restype = wintypes.BOOL
 WM_THEMECHANGED = 0x031A
 LVM_SETBKCOLOR = 0x1000 + 1
 LVM_GETHEADER = 0x1000 + 31
+LVM_GETTOOLTIPS = 0x1000 + 78
 LVM_SETTEXTCOLOR = 0x1000 + 36
 LVM_SETTEXTBKCOLOR = 0x1000 + 38
 TVM_SETBKCOLOR = 0x1100 + 29
@@ -297,6 +298,7 @@ def _applyDark(win, hwnd):
 	# wx skips re-sending colours it believes are already set, so tell the
 	# native list/tree directly (these get reset by theme changes).
 	if isinstance(win, wx.ListCtrl):
+		native.themeTooltip(_SendMessage(hwnd, LVM_GETTOOLTIPS, 0, 0), True)
 		_SendMessage(hwnd, LVM_SETBKCOLOR, 0, _colorref(FIELD_BG))
 		_SendMessage(hwnd, LVM_SETTEXTBKCOLOR, 0, _colorref(FIELD_BG))
 		_SendMessage(hwnd, LVM_SETTEXTCOLOR, 0, _colorref(FG))
@@ -360,6 +362,7 @@ def _restoreLight(win, hwnd, state):
 	# wx applies "Explorer" to lists/trees itself; everything else gets the default theme.
 	_setWindowTheme(hwnd, "Explorer" if isinstance(win, (wx.ListCtrl, wx.TreeCtrl)) else None)
 	if isinstance(win, wx.ListCtrl):
+		native.themeTooltip(_SendMessage(hwnd, LVM_GETTOOLTIPS, 0, 0), False)
 		# Exactly what an untouched wx list has: explicit window colours, default text
 		# background. (CLR_DEFAULT for the background makes Windows 11's hover overlay
 		# blend over black instead of white.)

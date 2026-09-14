@@ -473,6 +473,211 @@ class DevHook:
 				names = {0xFF000000: "CLR_DEFAULT", 0xFFFFFFFF: "CLR_NONE"}
 				print(type(c).__name__, "bk=%s text=%s textbk=%s" % tuple(names.get(v, "#%06X" % v) for v in vals), "theme?", "wxbg", c.GetBackgroundColour().GetAsString(wx.C2S_HTML_SYNTAX))
 
+	def v_richtrace(self, category="speech", name="richtrace"):
+		"""Open a settings category and log every message reaching rich edit controls created
+		meanwhile, plus each time the add-on applies rich colours. Finds what resets the text colour."""
+		import time
+		from ctypes import wintypes
+
+		from . import native
+
+		comctl32 = ctypes.windll.comctl32
+		SUBCLASSPROC = ctypes.WINFUNCTYPE(
+			ctypes.c_ssize_t, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM, ctypes.c_size_t, ctypes.c_size_t
+		)
+		_Def = comctl32.DefSubclassProc
+		_Def.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+		_Def.restype = ctypes.c_ssize_t
+		_Set = comctl32.SetWindowSubclass
+		_Set.argtypes = (wintypes.HWND, SUBCLASSPROC, ctypes.c_size_t, ctypes.c_size_t)
+		t0 = time.perf_counter()
+		lines = []
+		NAMES = {0xC: "WM_SETTEXT", 0x461: "EM_SETTEXTEX", 0xC2: "EM_REPLACESEL", 0x449: "EM_STREAMIN", 0x30: "WM_SETFONT",
+			0x444: "EM_SETCHARFORMAT", 0x443: "EM_SETBKGNDCOLOR", 0x31A: "WM_THEMECHANGED", 0xCF: "EM_SETREADONLY",
+			0x45D: "EM_SETLANGOPTIONS", 0x44D: "EM_SETPARAFORMAT", 0xB1: "EM_SETSEL", 0x18: "WM_SHOWWINDOW", 0x0A: "WM_ENABLE",
+			0x4CE: "EM_SETEDITSTYLE", 0x0405: "EM_SETRECT"}
+
+		def sub(hwnd, msg, w, l, uid, ref):
+			nm = NAMES.get(msg)
+			if nm:
+				extra = ""
+				if msg == 0x444 and l:
+					cf = native.CHARFORMATW.from_address(l)
+					extra = " mask=%#x effects=%#x colour=%#06x" % (cf.dwMask & 0xFFFFFFFF, cf.dwEffects & 0xFFFFFFFF, cf.crTextColor & 0xFFFFFF)
+				lines.append("%7.1f ms %#x %s w=%#x%s" % ((time.perf_counter() - t0) * 1000, hwnd, nm, w & 0xFFFFFFFF, extra))
+			return _Def(hwnd, msg, w, l)
+
+		subProc = SUBCLASSPROC(sub)
+		self._keep = [subProc]
+		origApply = native.applyRichColours
+
+		def tracedApply(hwnd, textRgb, bgRgb):
+			lines.append("%7.1f ms %#x APPLY rich colours text=%s" % ((time.perf_counter() - t0) * 1000, hwnd, textRgb))
+			return origApply(hwnd, textRgb, bgRgb)
+
+		native.applyRichColours = tracedApply
+
+		def onCreate(evt):
+			evt.Skip()
+			w = evt.GetWindow()
+			try:
+				h = w.GetHandle()
+				if native.isRichEdit(h):
+					lines.append("%7.1f ms %#x CREATED %s" % ((time.perf_counter() - t0) * 1000, h, type(w).__name__))
+					_Set(h, subProc, 96, 0)
+			except Exception:
+				pass
+
+		app = wx.GetApp()
+		app.Bind(wx.EVT_WINDOW_CREATE, onCreate)
+
+		def finish():
+			app.Unbind(wx.EVT_WINDOW_CREATE, handler=onCreate)
+			native.applyRichColours = origApply
+			os.makedirs(SHOTS_DIR, exist_ok=True)
+			with open(_shotPath(name + ".txt").replace(".png", ""), "w", encoding="utf-8") as f:
+				f.write(chr(10).join(lines))
+
+		self._later = wx.CallLater(5000, finish)
+		if category.startswith("category:"):
+			self.v_category(category.split(":", 1)[1])
+		else:
+			self.v_settings(category)
+
+	def v_richinfo(self, titlePart):
+		"""Rich edit controls in a dialog: default and whole-text character colour, auto-colour effect, styles."""
+		from . import native
+
+		w = _findTLW(titlePart)
+		if not w:
+			print("no shown window with title containing", repr(titlePart))
+			return
+		for c in _walk(w):
+			try:
+				h = c.GetHandle()
+			except Exception:
+				continue
+			if not native.isRichEdit(h):
+				continue
+			cf = native.CHARFORMATW()
+			cf.cbSize = ctypes.sizeof(cf)
+			native._SendMessageW(h, 0x043A, 0, ctypes.addressof(cf))  # EM_GETCHARFORMAT, SCF_DEFAULT
+			d = (cf.dwMask & 0xFFFFFFFF, cf.dwEffects & 0xFFFFFFFF, cf.crTextColor & 0xFFFFFF)
+			_user32.SendMessageW(h, 0x00B1, 0, -1)  # EM_SETSEL all
+			cf2 = native.CHARFORMATW()
+			cf2.cbSize = ctypes.sizeof(cf2)
+			native._SendMessageW(h, 0x043A, 1, ctypes.addressof(cf2))  # SCF_SELECTION
+			_user32.SendMessageW(h, 0x00B1, 0, 0)
+			sel = (cf2.dwMask & 0xFFFFFFFF, cf2.dwEffects & 0xFFFFFFFF, cf2.crTextColor & 0xFFFFFF)
+			print("%s %#x text=%r default(mask=%#x effects=%#x colour=%#06x) selection(mask=%#x effects=%#x colour=%#06x) autocolor=%s" % (
+				type(c).__name__, h, c.GetValue()[:30], d[0], d[1], d[2], sel[0], sel[1], sel[2], bool(sel[1] & 0x40000000)))
+
+	def v_category(self, name):
+		"""Switch the open NVDA Settings dialog to a category by selecting it in the list (as arrow keys do)."""
+		w = _findTLW("NVDA Settings")
+		if not w:
+			print("Settings dialog is not open")
+			return
+		lst = w.catListCtrl
+		for i in range(lst.GetItemCount()):
+			if name.lower() in lst.GetItemText(i).lower():
+				lst.Select(i)
+				lst.Focus(i)
+				print("selected category", lst.GetItemText(i))
+				return
+		print("no category containing", repr(name))
+
+	def v_tipshot(self, name="tooltip"):
+		"""Screenshot every visible tooltip window of this process (hover something first)."""
+		from ctypes import wintypes
+
+		EnumProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+		pid = os.getpid()
+		found = []
+
+		@EnumProc
+		def cb(h, _):
+			p = wintypes.DWORD()
+			_user32.GetWindowThreadProcessId(h, ctypes.byref(p))
+			buf = ctypes.create_unicode_buffer(64)
+			_user32.GetClassNameW(h, buf, 64)
+			if p.value == pid and _user32.IsWindowVisible(h) and buf.value == "tooltips_class32":
+				found.append(h)
+			return True
+
+		_user32.EnumWindows(cb, 0)
+		if not found:
+			print("no visible tooltip")
+			return
+		_grab(found, name, pad=4)
+
+	def v_hoveritem(self, name):
+		"""Move the mouse onto the Settings category whose name contains the text."""
+		w = _findTLW("NVDA Settings")
+		if not w:
+			print("Settings dialog is not open")
+			return
+		lst = w.catListCtrl
+		for i in range(lst.GetItemCount()):
+			if name.lower() in lst.GetItemText(i).lower():
+				lst.EnsureVisible(i)
+				r = lst.GetItemRect(i)
+				pt = lst.ClientToScreen(wx.Point(r.x + r.width // 2, r.y + r.height // 2))
+				_user32.SetCursorPos(pt.x, pt.y)
+				print("hovering", lst.GetItemText(i), "at", pt.x, pt.y)
+				return
+		print("no category containing", repr(name))
+
+	def v_tipinfo(self, titlePart):
+		"""For each list in a dialog: its tooltip window, class, and whether the dark theme applies (HRESULT)."""
+		w = _findTLW(titlePart)
+		if not w:
+			print("no shown window with title containing", repr(titlePart))
+			return
+		for c in _walk(w):
+			if isinstance(c, wx.ListCtrl):
+				tip = _user32.SendMessageW(c.GetHandle(), 0x1000 + 78, 0, 0)
+				buf = ctypes.create_unicode_buffer(64)
+				_user32.GetClassNameW(tip, buf, 64)
+				hr = ctypes.windll.uxtheme.SetWindowTheme(tip, "DarkMode_Explorer", None)
+				print(type(c).__name__, "tooltip hwnd=%#x class=%r SetWindowTheme->%#x visible=%s" % (tip, buf.value, hr & 0xFFFFFFFF, bool(_user32.IsWindowVisible(tip))))
+
+	def v_tippop(self, name="tooltip"):
+		"""Hover the first truncated category, force its tooltip to pop (TTM_POPUP) and screenshot it."""
+		w = _findTLW("NVDA Settings")
+		if not w:
+			print("Settings dialog is not open")
+			return
+		lst = w.catListCtrl
+		tip = _user32.SendMessageW(lst.GetHandle(), 0x1000 + 78, 0, 0)
+		target = None
+		for i in range(lst.GetItemCount()):
+			if "Document Formatting" in lst.GetItemText(i):
+				target = i
+				break
+		if target is None:
+			print("no truncated item found")
+			return
+		lst.EnsureVisible(target)
+		r = lst.GetItemRect(target)
+		pt = lst.ClientToScreen(wx.Point(r.x + r.width // 2, r.y + r.height // 2))
+		_user32.SetCursorPos(pt.x, pt.y)
+
+		def pop():
+			_user32.SendMessageW(tip, 0x0400 + 34, 0, 0)  # TTM_POPUP
+			wx.CallLater(400, shoot)
+
+		def shoot():
+			if _user32.IsWindowVisible(tip):
+				rc = _hwndRect(tip)
+				print("tooltip rect", rc)
+				_grab([tip], name, pad=4)
+			else:
+				print("tooltip not visible")
+
+		wx.CallLater(700, pop)
+		print("popping tooltip")
+
 	def v_welcome(self):
 		"""Open NVDA's Welcome dialog the way Help > Welcome does."""
 		from gui.startupDialogs import WelcomeDialog

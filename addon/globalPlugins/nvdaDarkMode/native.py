@@ -314,6 +314,8 @@ WM_KILLFOCUS = 0x0008
 WM_PAINT = 0x000F
 WM_ERASEBKGND = 0x0014
 WM_GETFONT = 0x0031
+WM_SETFONT = 0x0030
+WM_THEMECHANGED = 0x031A
 WM_DRAWITEM = 0x002B
 WM_NCDESTROY = 0x0082
 WM_NCPAINT = 0x0085
@@ -1154,7 +1156,9 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				_RedrawWindow(hwnd, None, None, RDW_FRAME | RDW_INVALIDATE)
 				return res
 		elif idSubclass == ID_RICH:
-			if msg in (WM_SETTEXT, EM_SETTEXTEX, EM_REPLACESEL):
+			# Text replacement and font changes both reset a rich edit's default character
+			# colour to "automatic" (black); put ours back after each.
+			if msg in (WM_SETTEXT, EM_SETTEXTEX, EM_REPLACESEL, WM_SETFONT, WM_THEMECHANGED):
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 				applyRichColours(hwnd, LIST_TEXT, LIST_BG)
 				return res
@@ -1532,6 +1536,17 @@ _CallNextHookEx.restype = ctypes.c_ssize_t
 _menuHook = None
 
 
+TOOLTIP_CLASS = "tooltips_class32"
+_SetWindowTheme = ctypes.windll.uxtheme.SetWindowTheme
+_SetWindowTheme.argtypes = (wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR)
+
+
+def themeTooltip(hwnd, dark: bool):
+	"""Tooltips (list view truncation tips, control tips) follow the dark theme like Explorer's."""
+	if hwnd and _IsWindow(hwnd):
+		_SetWindowTheme(hwnd, "DarkMode_Explorer" if dark else None, None)
+
+
 def _cbt(code, wParam, lParam):
 	try:
 		if code == HCBT_CREATEWND:
@@ -1539,6 +1554,8 @@ def _cbt(code, wParam, lParam):
 			_user32.GetClassNameW(wParam, buf, 64)
 			if buf.value == MENU_POPUP_CLASS:
 				_attach(wParam, ID_MENUPOPUP)
+			elif buf.value == TOOLTIP_CLASS:
+				themeTooltip(wParam, True)
 	except Exception:
 		log.exception("nvdaDarkMode: menu hook failed")
 	return _CallNextHookEx(_menuHook, code, wParam, lParam)
