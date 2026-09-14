@@ -360,15 +360,18 @@ def _restoreLight(win, hwnd, state):
 	# wx applies "Explorer" to lists/trees itself; everything else gets the default theme.
 	_setWindowTheme(hwnd, "Explorer" if isinstance(win, (wx.ListCtrl, wx.TreeCtrl)) else None)
 	if isinstance(win, wx.ListCtrl):
-		_SendMessage(hwnd, LVM_SETBKCOLOR, 0, CLR_DEFAULT)
+		# Exactly what an untouched wx list has: explicit window colours, default text
+		# background. (CLR_DEFAULT for the background makes Windows 11's hover overlay
+		# blend over black instead of white.)
+		_SendMessage(hwnd, LVM_SETBKCOLOR, 0, _colorref(win.GetBackgroundColour()))
 		_SendMessage(hwnd, LVM_SETTEXTBKCOLOR, 0, CLR_DEFAULT)
-		_SendMessage(hwnd, LVM_SETTEXTCOLOR, 0, CLR_DEFAULT)
+		_SendMessage(hwnd, LVM_SETTEXTCOLOR, 0, _colorref(win.GetForegroundColour()))
 		header = _SendMessage(hwnd, LVM_GETHEADER, 0, 0)
 		if header:
 			native.applyHeader(header, False)
 	elif isinstance(win, wx.TreeCtrl):
-		_SendMessage(hwnd, TVM_SETBKCOLOR, 0, -1)
-		_SendMessage(hwnd, TVM_SETTEXTCOLOR, 0, -1)
+		_SendMessage(hwnd, TVM_SETBKCOLOR, 0, _colorref(win.GetBackgroundColour()))
+		_SendMessage(hwnd, TVM_SETTEXTCOLOR, 0, _colorref(win.GetForegroundColour()))
 	if isinstance(win, wx.CheckListBox):
 		native.registerCheckList(hwnd, 0, win, False)
 	if isinstance(win, wx.Slider):

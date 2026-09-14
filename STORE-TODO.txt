@@ -55,8 +55,6 @@ with it on and check by ear:
      and braille viewers, the input gestures dialog, the dictionary dialogs;
    - the toggle command (assign it a gesture under Input Gestures > Dark Mode);
    - Windows High Contrast on and off while NVDA is running;
-   - NVDA's own "Follow Windows setting" mode: switch Windows between light and
-     dark and confirm NVDA follows within a couple of seconds;
    - NVDA exit and restart, and reloading plugins (NVDA+Ctrl+F3);
    - if you can borrow a Windows 10 machine, run it there once (some of the
      colours - black title bars, the grey outline - are Windows 11 only and

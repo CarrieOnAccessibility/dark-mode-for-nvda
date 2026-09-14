@@ -29,20 +29,14 @@ except Exception:  # not running from an installed add-on (e.g. scratchpad)
 	pass
 
 CONF_SECTION = "nvdaDarkMode"
-# "dark": on; "off": off; "followSystem" (config file only): dark while Windows uses dark mode for apps.
 config.conf.spec[CONF_SECTION] = {
-	"mode": "option('followSystem', 'dark', 'off', default='dark')",
+	"mode": "option('dark', 'off', default='dark')",
 }
 
 
 def wantDark() -> bool:
 	"""The user's preference, before the engine applies its High Contrast override."""
-	mode = config.conf[CONF_SECTION]["mode"]
-	if mode == "dark":
-		return True
-	if mode == "off":
-		return False
-	return theming.systemUsesDarkApps()
+	return config.conf[CONF_SECTION]["mode"] != "off"
 
 
 def setMode(mode: str):

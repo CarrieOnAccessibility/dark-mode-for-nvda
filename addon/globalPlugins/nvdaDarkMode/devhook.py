@@ -435,7 +435,7 @@ class DevHook:
 		self.v_click("NVDA Settings", "Change...")
 
 	def v_mode(self, mode="dark"):
-		"""Set the add-on's mode (dark|off|followSystem) and apply it, like the settings panel does."""
+		"""Set the add-on mode (dark|off) and apply it, like the settings panel does."""
 		import globalPlugins.nvdaDarkMode as pkg
 
 		pkg.setMode(mode)
@@ -459,6 +459,19 @@ class DevHook:
 			n += 1
 			if n >= 80:
 				break
+
+	def v_lvcolors(self, titlePart):
+		"""Raw list-view colour settings (LVM_GETBKCOLOR / TEXTCOLOR / TEXTBKCOLOR) of each list in a dialog."""
+		w = _findTLW(titlePart)
+		if not w:
+			print("no shown window with title containing", repr(titlePart))
+			return
+		for c in _walk(w):
+			if isinstance(c, wx.ListCtrl):
+				h = c.GetHandle()
+				vals = [(_user32.SendMessageW(h, m, 0, 0) & 0xFFFFFFFF) for m in (0x1000, 0x1023, 0x1025)]
+				names = {0xFF000000: "CLR_DEFAULT", 0xFFFFFFFF: "CLR_NONE"}
+				print(type(c).__name__, "bk=%s text=%s textbk=%s" % tuple(names.get(v, "#%06X" % v) for v in vals), "theme?", "wxbg", c.GetBackgroundColour().GetAsString(wx.C2S_HTML_SYNTAX))
 
 	def v_welcome(self):
 		"""Open NVDA's Welcome dialog the way Help > Welcome does."""
