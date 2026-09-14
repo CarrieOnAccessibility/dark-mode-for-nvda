@@ -132,7 +132,7 @@ DWMWA_BORDER_COLOR = 34
 DWMWA_CAPTION_COLOR = 35
 DWMWA_TEXT_COLOR = 36
 DWMWA_COLOR_DEFAULT = 0xFFFFFFFF
-WINDOW_BORDER = wx.Colour(0x60, 0xCD, 0xFF)  # one-pixel ring around every NVDA dialog: the dark-mode accent blue
+WINDOW_BORDER = wx.Colour(0x8C, 0x8C, 0x8C)  # one-pixel ring around every NVDA dialog: same grey as the layout lines
 TITLE_BG = wx.Colour(0x00, 0x00, 0x00)  # title bars: black (Windows 11 only; older builds keep the dark-mode grey)
 TITLE_FG = wx.Colour(0xFF, 0xFF, 0xFF)
 
@@ -297,6 +297,10 @@ def _applyDark(win, hwnd):
 		parent = win.GetParent()
 		if parent:
 			native.registerCheckList(hwnd, parent.GetHandle(), win, True)
+	if isinstance(win, wx.Slider):
+		parent = win.GetParent()
+		if parent:
+			native.registerSlider(hwnd, parent.GetHandle(), True)
 	if isinstance(win, wx.TextCtrl) and native.isRichEdit(hwnd):
 		native.applyRich(hwnd, True)
 	# Frames around layout (panels) are structure, not fields: draw them softer.
@@ -354,6 +358,8 @@ def _restoreLight(win, hwnd, state):
 		_SendMessage(hwnd, TVM_SETTEXTCOLOR, 0, -1)
 	if isinstance(win, wx.CheckListBox):
 		native.registerCheckList(hwnd, 0, win, False)
+	if isinstance(win, wx.Slider):
+		native.registerSlider(hwnd, 0, False)
 	if isinstance(win, wx.TextCtrl) and native.isRichEdit(hwnd):
 		native.applyRich(hwnd, False)
 	for h in _framedHwnds(win, hwnd):

@@ -128,6 +128,22 @@ class WINDOWPOS(ctypes.Structure):
 	]
 
 
+class NMHDR(ctypes.Structure):
+	_fields_ = [("hwndFrom", wintypes.HWND), ("idFrom", ctypes.c_size_t), ("code", wintypes.UINT)]
+
+
+class NMCUSTOMDRAW(ctypes.Structure):
+	_fields_ = [
+		("hdr", NMHDR),
+		("dwDrawStage", wintypes.DWORD),
+		("hdc", HANDLE),
+		("rc", RECT),
+		("dwItemSpec", ctypes.c_size_t),
+		("uItemState", wintypes.UINT),
+		("lItemlParam", ctypes.c_ssize_t),
+	]
+
+
 class PAINTSTRUCT(ctypes.Structure):
 	_fields_ = [
 		("hdc", HANDLE),
@@ -272,6 +288,14 @@ EM_SETTEXTEX = 0x0461
 SCF_DEFAULT = 0x0000
 SCF_ALL = 0x0004
 CFM_COLOR = 0x40000000
+WM_NOTIFY = 0x004E
+NM_CUSTOMDRAW = 0xFFFFFFF4  # (UINT)(-12)
+CDDS_PREPAINT = 0x0001
+CDDS_ITEMPREPAINT = 0x00010001
+CDRF_DODEFAULT = 0x0
+CDRF_SKIPDEFAULT = 0x4
+CDRF_NOTIFYITEMDRAW = 0x20
+TBCD_CHANNEL = 0x3
 WM_WINDOWPOSCHANGED = 0x0047
 WS_CAPTION = 0x00C00000
 _ExcludeClipRect = _gdi32.ExcludeClipRect
@@ -356,6 +380,7 @@ FRAME_INNER = (0x2B, 0x2B, 0x2B)  # covers the theme's inner white line (matches
 PARENT_BG = (0x20, 0x20, 0x20)  # dialog background, shows behind rounded button corners
 GRIP_DOT = (0x62, 0x62, 0x62)  # size grip dots: visible if you look for them, nothing more
 LAYOUT_LINE = (0x8C, 0x8C, 0x8C)  # structure, not controls: panel frames, group boxes, separators, under the title bar
+SLIDER_TRACK = (0x8C, 0x8C, 0x8C)  # the groove a slider thumb runs in (the thumb itself is left to Windows)
 MENU_BG = (0x2C, 0x2C, 0x2C)  # what Windows paints dark popup menus with (measured); used only for the erase
 BTN_FACE = (0x33, 0x33, 0x33)
 BTN_HOT = (0x50, 0x50, 0x50)  # hover: clearly lighter than the face
@@ -627,6 +652,20 @@ def _drawTitleSeparator(hwnd, hdc):
 	line = _CreateSolidBrush(colorref(LAYOUT_LINE))
 	_FillRect(hdc, ctypes.byref(r), line)
 	_DeleteObject(line)
+
+
+def _drawSliderChannel(hwnd, hdc, rc):
+	dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
+	radius = max(2, round(2 * dpi / 96))
+	brush = _CreateSolidBrush(colorref(SLIDER_TRACK))
+	pen = _CreatePen(PS_SOLID, 1, colorref(SLIDER_TRACK))
+	oldBrush = _SelectObject(hdc, brush)
+	oldPen = _SelectObject(hdc, pen)
+	_RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, radius, radius)
+	_SelectObject(hdc, oldPen)
+	_SelectObject(hdc, oldBrush)
+	_DeleteObject(pen)
+	_DeleteObject(brush)
 
 
 def _paintCheckItem(dis):
@@ -911,6 +950,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 			_checkLists.pop(hwnd, None)
 			_eraseColours.pop(hwnd, None)
 			_frameColours.pop(hwnd, None)
+			_sliders.discard(hwnd)
 			_framePending.discard(hwnd)
 			_tabHot.pop(hwnd, None)
 			return _DefSubclassProc(hwnd, msg, wParam, lParam)
@@ -919,6 +959,17 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				dis = DRAWITEMSTRUCT.from_address(lParam)
 				if dis.CtlType == ODT_LISTBOX and dis.hwndItem in _checkLists and _paintCheckItem(dis):
 					return 1
+			elif msg == WM_NOTIFY:
+				hdr = NMHDR.from_address(lParam)
+				if hdr.code == NM_CUSTOMDRAW and hdr.hwndFrom in _sliders:
+					cd = NMCUSTOMDRAW.from_address(lParam)
+					if cd.dwDrawStage == CDDS_PREPAINT:
+						return CDRF_NOTIFYITEMDRAW
+					if cd.dwDrawStage == CDDS_ITEMPREPAINT and cd.dwItemSpec == TBCD_CHANNEL:
+						# Only the groove; the thumb and tick marks stay Windows-drawn.
+						_drawSliderChannel(hdr.hwndFrom, cd.hdc, cd.rc)
+						return CDRF_SKIPDEFAULT
+					return CDRF_DODEFAULT
 		if idSubclass == ID_FRAME:
 			if msg == WM_NCPAINT:
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
@@ -1069,6 +1120,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 	return _DefSubclassProc(hwnd, msg, wParam, lParam)
 
 
+_sliders = set()  # trackbar hwnds whose channel we draw (their parent carries ID_OWNERDRAW)
 _eraseColours = {}  # hwnd -> rgb laid down on WM_ERASEBKGND (ID_ERASE)
 _frameColours = {}  # hwnd -> frame colour when not focused (ID_FRAME); default BORDER
 _subclassProc = _SUBCLASSPROC(_proc)  # must stay alive for as long as any window is subclassed
@@ -1242,6 +1294,17 @@ def applyEraseBase(hwnd, rgb, dark: bool):
 		_detach(hwnd, ID_ERASE)
 
 
+def registerSlider(hwnd, hwndParent, dark: bool):
+	"""Grey groove for a wx.Slider (custom draw arrives at the parent as WM_NOTIFY)."""
+	if dark:
+		_sliders.add(hwnd)
+		_attach(hwndParent, ID_OWNERDRAW)
+	else:
+		_sliders.discard(hwnd)
+	if _IsWindow(hwnd):
+		_InvalidateRect(hwnd, None, True)
+
+
 def registerCheckList(hwnd, hwndParent, win, dark: bool):
 	"""Owner-draw the rows of a wx.CheckListBox (its parent receives WM_DRAWITEM)."""
 	if dark:
@@ -1307,6 +1370,7 @@ def detachAll():
 	removeMenuHook()
 	_eraseColours.clear()
 	_frameColours.clear()
+	_sliders.clear()
 	_checkLists.clear()
 	_tabHot.clear()
 	for hwnd, ids in list(_subclassed.items()):
