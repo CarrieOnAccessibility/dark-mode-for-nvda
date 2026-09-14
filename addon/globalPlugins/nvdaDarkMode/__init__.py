@@ -46,17 +46,22 @@ def setMode(mode: str):
 	plugin = GlobalPlugin.instance
 	wasActive = bool(plugin and plugin.engine.active)
 	config.conf[CONF_SECTION]["mode"] = mode
+	saveConfig()  # both directions: an unclean exit must not leave the other state behind
 	if plugin:
 		plugin.engine.refresh()
 	if mode == "off" and wasActive and config.conf[CONF_SECTION]["restartWhenOff"]:
 		wx.CallAfter(restartNVDA)
 
 
-def restartNVDA():
+def saveConfig():
 	try:
 		config.conf.save()
 	except Exception:
-		log.debugWarning("nvdaDarkMode: could not save config before restart", exc_info=True)
+		log.debugWarning("nvdaDarkMode: could not save config", exc_info=True)
+
+
+def restartNVDA():
+	saveConfig()
 	import core
 	import queueHandler
 

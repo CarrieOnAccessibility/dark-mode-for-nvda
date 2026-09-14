@@ -301,6 +301,8 @@ _SelectObject.argtypes = (HANDLE, HANDLE)
 _SelectObject.restype = HANDLE
 _DeleteObject = _gdi32.DeleteObject
 _DeleteObject.argtypes = (HANDLE,)
+_Polygon = _gdi32.Polygon
+_Polygon.argtypes = (HANDLE, ctypes.c_void_p, ctypes.c_int)
 _RoundRect = _gdi32.RoundRect
 _RoundRect.argtypes = (HANDLE, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int)
 _SetBkMode = _gdi32.SetBkMode
@@ -850,8 +852,14 @@ def _drawSliderChannel(hwnd, hdc, rc):
 	_DeleteObject(brush)
 
 
+TBS_VERT = 0x0002
+TBS_TOP = 0x0004  # (also TBS_LEFT for vertical bars)
+TBS_BOTH = 0x0008
+
+
 def _drawSliderThumb(hwnd, hdc, rc, state):
-	"""The thumb as a rounded pill: Windows' blue, accent blue when hovered (Windows drew it black)."""
+	"""The thumb in Windows' own pointer shape (a block tapering to a point on the tick side),
+	in Windows' blue; accent blue when hovered (Windows drew it black), grey when disabled."""
 	if not _IsWindowEnabled(hwnd) or state & CDIS_DISABLED:
 		colour = SLIDER_THUMB_DISABLED
 	elif state & CDIS_SELECTED:
@@ -860,16 +868,32 @@ def _drawSliderThumb(hwnd, hdc, rc, state):
 		colour = SLIDER_THUMB_HOT
 	else:
 		colour = SLIDER_THUMB
-	# clear what the theme may have painted underneath
 	bg = _CreateSolidBrush(colorref(PARENT_BG))
-	_FillRect(hdc, ctypes.byref(rc), bg)
+	_FillRect(hdc, ctypes.byref(rc), bg)  # clear what the theme may have painted underneath
 	_DeleteObject(bg)
-	radius = max(2, min(rc.right - rc.left, rc.bottom - rc.top) // 2)
+	style = _GetWindowLongW(hwnd, GWL_STYLE)
+	l, t, r, b = rc.left, rc.top, rc.right - 1, rc.bottom - 1
+	w, h = r - l, b - t
+	if style & TBS_BOTH:
+		pts = [(l, t), (r, t), (r, b), (l, b)]
+	elif style & TBS_VERT:
+		tip = h // 2
+		if style & TBS_TOP:  # point on the left
+			pts = [(l + tip, t), (r, t), (r, b), (l + tip, b), (l, t + h // 2)]
+		else:  # point on the right
+			pts = [(l, t), (r - tip, t), (r, t + h // 2), (r - tip, b), (l, b)]
+	else:
+		tip = w // 2
+		if style & TBS_TOP:  # point at the top
+			pts = [(l + w // 2, t), (r, t + tip), (r, b), (l, b), (l, t + tip)]
+		else:  # point at the bottom (the usual)
+			pts = [(l, t), (r, t), (r, b - tip), (l + w // 2, b), (l, b - tip)]
+	arr = (wintypes.POINT * len(pts))(*[wintypes.POINT(x, y) for x, y in pts])
 	brush = _CreateSolidBrush(colorref(colour))
 	pen = _CreatePen(PS_SOLID, 1, colorref(colour))
 	oldBrush = _SelectObject(hdc, brush)
 	oldPen = _SelectObject(hdc, pen)
-	_RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, radius, radius)
+	_Polygon(hdc, arr, len(pts))
 	_SelectObject(hdc, oldPen)
 	_SelectObject(hdc, oldBrush)
 	_DeleteObject(pen)
@@ -1171,7 +1195,7 @@ def _drawHeader(hwnd, hdc):
 			pen = _CreatePen(PS_SOLID, 1, colorref(HEADER_TEXT))
 			oldPen = _SelectObject(hdc, pen)
 			oldBrush = _SelectObject(hdc, textBrush)
-			_gdi32.Polygon(hdc, pts, 3)
+			_Polygon(hdc, pts, 3)
 			_SelectObject(hdc, oldPen)
 			_SelectObject(hdc, oldBrush)
 			_DeleteObject(pen)
