@@ -282,6 +282,9 @@ _FIELD_TYPES = (
 	wx.SpinCtrlDouble,
 )
 
+# Controls whose dotted focus rectangle is replaced by our solid ring (see native.applyFocusRing).
+_FOCUS_RING_TYPES = (wx.CheckBox, wx.Choice, wx.ComboBox, wx.ListCtrl, wx.TreeCtrl)
+
 # Original colours per window HANDLE. Not an attribute on the wx object: windows that wx
 # creates on the C++ side (a wx.StaticBoxSizer's box, for one) get a fresh Python wrapper
 # every time they are looked up, so anything stored on the wrapper is lost.
@@ -351,6 +354,10 @@ def _applyDark(win, hwnd):
 		parent = win.GetParent()
 		if parent:
 			native.registerCheckList(hwnd, parent.GetHandle(), win, True)
+	if isinstance(win, wx.ListCtrl):
+		parent = win.GetParent()
+		if parent:
+			native.registerListView(hwnd, parent.GetHandle(), True)
 	if isinstance(win, wx.Slider):
 		parent = win.GetParent()
 		if parent:
@@ -382,6 +389,11 @@ def _applyDark(win, hwnd):
 			native.applyRadio(child, True)
 	if isinstance(win, wx.RadioButton):
 		native.applyRadio(hwnd, True)
+	# Windows draws these a dotted grey focus rectangle; ours is a solid ring in the accent blue.
+	if isinstance(win, _FOCUS_RING_TYPES):
+		native.applyFocusRing(hwnd, True)
+	if isinstance(win, wx.ListBox) and not isinstance(win, wx.CheckListBox):
+		native.applyListBox(hwnd, True)
 	if isinstance(win, wx.TopLevelWindow):
 		_setTitleBarDark(hwnd, True)
 		native.applyShowPaint(hwnd, True)
@@ -419,6 +431,8 @@ def _restoreLight(win, hwnd, state):
 		_SendMessage(hwnd, TVM_SETTEXTCOLOR, 0, _colorref(win.GetForegroundColour()))
 	if isinstance(win, wx.CheckListBox):
 		native.registerCheckList(hwnd, 0, win, False)
+	if isinstance(win, wx.ListCtrl):
+		native.registerListView(hwnd, 0, False)
 	if isinstance(win, wx.Slider):
 		native.registerSlider(hwnd, 0, False)
 	if isinstance(win, wx.TextCtrl) and native.isRichEdit(hwnd):
@@ -445,6 +459,10 @@ def _restoreLight(win, hwnd, state):
 			native.applyRadio(child, False)
 	if isinstance(win, wx.RadioButton):
 		native.applyRadio(hwnd, False)
+	if isinstance(win, _FOCUS_RING_TYPES):
+		native.applyFocusRing(hwnd, False)
+	if isinstance(win, wx.ListBox) and not isinstance(win, wx.CheckListBox):
+		native.applyListBox(hwnd, False)
 	if isinstance(win, wx.TopLevelWindow):
 		_setTitleBarDark(hwnd, False)
 		native.applyShowPaint(hwnd, False)
@@ -501,6 +519,15 @@ def themeTree(top: wx.Window, dark: bool = True, force: bool = False):
 def themeAllWindows(dark: bool = True, force: bool = False):
 	for tlw in list(wx.GetTopLevelWindows()):
 		themeTree(tlw, dark, force)
+
+
+def repaintAllWindows():
+	"""Repaint every window and control (after a purely visual setting changed)."""
+	for tlw in list(wx.GetTopLevelWindows()):
+		try:
+			native._RedrawWindow(tlw.GetHandle(), None, None, native.RDW_FRAME | native.RDW_INVALIDATE | native.RDW_ERASE | native.RDW_ALLCHILDREN)
+		except Exception:
+			log.debugWarning("darkMode: repaint failed", exc_info=True)
 
 
 # --- Process-wide switches --------------------------------------------------

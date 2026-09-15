@@ -61,6 +61,43 @@ def _shotPath(name):
 	return os.path.join(SHOTS_DIR, name)
 
 
+def _printWindow(hwnd):
+	"""The window's own pixels via PrintWindow(PW_RENDERFULLCONTENT): what the window paints,
+	whether or not something else is in front of it on screen. Never a screen-region grab."""
+	from PIL import Image
+
+	l, t, r, b = _hwndRect(hwnd)
+	w, h = r - l, b - t
+	if w <= 0 or h <= 0:
+		return None
+	user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
+	user32.GetDC.restype = gdi32.CreateCompatibleDC.restype = gdi32.CreateCompatibleBitmap.restype = ctypes.c_void_p
+	gdi32.SelectObject.restype = ctypes.c_void_p
+	screen = user32.GetDC(None)
+	mem = gdi32.CreateCompatibleDC(ctypes.c_void_p(screen))
+	bmp = gdi32.CreateCompatibleBitmap(ctypes.c_void_p(screen), w, h)
+	old = gdi32.SelectObject(ctypes.c_void_p(mem), ctypes.c_void_p(bmp))
+	ok = user32.PrintWindow(ctypes.c_void_p(hwnd), ctypes.c_void_p(mem), 2)  # PW_RENDERFULLCONTENT
+	img = None
+	if ok:
+
+		class BITMAPINFOHEADER(ctypes.Structure):
+			_fields_ = [("biSize", ctypes.c_uint32), ("biWidth", ctypes.c_int32), ("biHeight", ctypes.c_int32),
+				("biPlanes", ctypes.c_uint16), ("biBitCount", ctypes.c_uint16), ("biCompression", ctypes.c_uint32),
+				("biSizeImage", ctypes.c_uint32), ("biXPelsPerMeter", ctypes.c_int32), ("biYPelsPerMeter", ctypes.c_int32),
+				("biClrUsed", ctypes.c_uint32), ("biClrImportant", ctypes.c_uint32)]
+
+		bi = BITMAPINFOHEADER(ctypes.sizeof(BITMAPINFOHEADER), w, -h, 1, 32, 0, 0, 0, 0, 0, 0)
+		buf = ctypes.create_string_buffer(w * h * 4)
+		if gdi32.GetDIBits(ctypes.c_void_p(mem), ctypes.c_void_p(bmp), 0, h, buf, ctypes.byref(bi), 0):
+			img = Image.frombuffer("RGB", (w, h), buf, "raw", "BGRX", 0, 1).copy()
+	gdi32.SelectObject(ctypes.c_void_p(mem), ctypes.c_void_p(old))
+	gdi32.DeleteObject(ctypes.c_void_p(bmp))
+	gdi32.DeleteDC(ctypes.c_void_p(mem))
+	user32.ReleaseDC(None, ctypes.c_void_p(screen))
+	return img
+
+
 def _grab(hwnds, name, pad=8):
 	from PIL import ImageGrab
 
@@ -68,6 +105,13 @@ def _grab(hwnds, name, pad=8):
 	if not rects:
 		print("nothing to screenshot")
 		return
+	if len(hwnds) == 1:
+		img = _printWindow(hwnds[0])
+		if img is not None:
+			path = _shotPath(name)
+			img.save(path)
+			print("saved", path, img.size, "(PrintWindow)")
+			return
 	l = min(r[0] for r in rects) - pad
 	t = min(r[1] for r in rects) - pad
 	rr = max(r[2] for r in rects) + pad
@@ -190,7 +234,7 @@ class DevHook:
 			pops = _popups()
 			log.info("devhook menu: popups=%r" % (pops,))
 			try:
-				_grab(pops, name, pad=20)
+				_grab(pops, name, pad=0)  # the popup windows' own rects only
 			except Exception:
 				log.exception("devhook menu grab failed")
 			_user32.EndMenu()
@@ -215,6 +259,51 @@ class DevHook:
 
 		wx.CallAfter(popup)
 		print("popping menu")
+
+	def v_focusat(self, titlePart, typeName="CheckBox", index="0", name="focus"):
+		"""Put keyboard focus on the Nth control of a wx type in a dialog, with focus cues shown
+		(as the keyboard would), then screenshot that control's own window rect and report the
+		colours along its top and left edges (the focus ring should be there)."""
+		from PIL import ImageGrab
+
+		from . import native
+
+		w = _findTLW(titlePart)
+		if not w:
+			print("no shown window with title containing", repr(titlePart))
+			return
+		cls = getattr(wx, typeName, None)
+		found = [c for c in _walk(w) if cls and isinstance(c, cls) and c.IsShownOnScreen()]
+		if not found:
+			print("no shown", typeName, "in", w.GetTitle())
+			return
+		c = found[int(index) % len(found)]
+		c.SetFocus()
+		_user32.SendMessageW(w.GetHandle(), 0x0127, (1 << 16) | 2, 0)  # WM_CHANGEUISTATE: UIS_CLEAR, UISF_HIDEFOCUS
+		_user32.UpdateWindow(w.GetHandle())
+		h = c.GetHandle()
+		l, t, r, b = _hwndRect(h)
+		img = ImageGrab.grab(bbox=(l, t, r, b), all_screens=True).convert("RGB")
+		path = _shotPath(name)
+		img.save(path)
+		# client offset inside the window rect
+		from ctypes import wintypes
+
+		pt = wintypes.POINT(0, 0)
+		_user32.ClientToScreen(h, ctypes.byref(pt))
+		ox, oy = pt.x - l, pt.y - t
+		fr = native._focusRect(h) if native._className(h) in ("SysListView32", "SysTreeView32") else None
+		if fr:
+			cl, ct, cr, cb = ox + fr.left, oy + fr.top, ox + fr.right, oy + fr.bottom
+		else:
+			cr_ = wintypes.RECT()
+			_user32.GetClientRect(h, ctypes.byref(cr_))
+			cl, ct, cr, cb = ox, oy, ox + cr_.right, oy + cr_.bottom
+		midx, midy = (cl + cr) // 2, (ct + cb) // 2
+		top = [img.getpixel((midx, ct + i)) for i in range(3)]
+		left = [img.getpixel((cl + i, midy)) for i in range(3)]
+		print("%s %d (%s) focused: top edge %s left edge %s | GetFocus ok: %s | saved %s" % (
+			typeName, int(index), native._className(h), top, left, _user32.GetFocus() == h, path))
 
 	def v_menupop(self):
 		"""Pop the NVDA menu at the screen centre (as NVDA+N does) and close it after 900 ms.
@@ -576,8 +665,9 @@ class DevHook:
 			print("%s %#x text=%r default(mask=%#x effects=%#x colour=%#06x) selection(mask=%#x effects=%#x colour=%#06x) autocolor=%s" % (
 				type(c).__name__, h, c.GetValue()[:30], d[0], d[1], d[2], sel[0], sel[1], sel[2], bool(sel[1] & 0x40000000)))
 
-	def v_category(self, name):
-		"""Switch the open NVDA Settings dialog to a category by selecting it in the list (as arrow keys do)."""
+	def v_category(self, name, focus=""):
+		"""Switch the open NVDA Settings dialog to a category by selecting it in the list (as arrow keys do).
+		With a second argument "focus", keyboard focus is put on the category list afterwards."""
 		w = _findTLW("NVDA Settings")
 		if not w:
 			print("Settings dialog is not open")
@@ -587,6 +677,8 @@ class DevHook:
 			if name.lower() in lst.GetItemText(i).lower():
 				lst.Select(i)
 				lst.Focus(i)
+				if focus == "focus":
+					wx.CallAfter(lst.SetFocus)
 				print("selected category", lst.GetItemText(i))
 				return
 		print("no category containing", repr(name))
@@ -726,6 +818,9 @@ class DevHook:
 				parent = parent.GetParent()
 			if r - l < 14 or b - t < 10:
 				continue
+			if isinstance(c, (wx.RadioBox, wx.RadioButton)):
+				# a checked radio glyph has a dark centre dot: skip the glyph column
+				l += c.FromDIP(22)
 			img = ImageGrab.grab(bbox=(l + 2, t + 2, r - 2, b - 2), all_screens=True)
 			px = list(img.get_flattened_data() if hasattr(img, "get_flattened_data") else img.getdata())
 			cnt = Counter(px)
@@ -990,6 +1085,24 @@ class DevHook:
 					res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 					lines.append("%7.3f   WM_PAINT default took %.1f ms" % (time.perf_counter() - t0, (time.perf_counter() - t1) * 1000))
 					return res
+				if 0x01E0 <= msg <= 0x01EF or msg in (0x0100, 0x0101):
+					# menu-internal messages: which item is highlighted once the default handler is done?
+					res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+					from . import native
+
+					hmenu = native._SendMessageW(hwnd, 0x01E1, 0, 0)  # MN_GETHMENU
+					hi = []
+					if hmenu:
+						for i in range(_user32.GetMenuItemCount(ctypes.c_void_p(hmenu))):
+							mii = native.MENUITEMINFOW()
+							mii.cbSize = ctypes.sizeof(native.MENUITEMINFOW)
+							mii.fMask = 0x00000001  # MIIM_STATE
+							if native._GetMenuItemInfoW(hmenu, i, True, ctypes.byref(mii)) and mii.fState & 0x80:  # MFS_HILITE
+								rc = wintypes.RECT()
+								_user32.GetMenuItemRect(ctypes.c_void_p(hwnd), ctypes.c_void_p(hmenu), i, ctypes.byref(rc))
+								hi.append((i, (rc.left, rc.top, rc.right, rc.bottom)))
+					lines.append("%7.3f   after msg=%#06x hmenu=%#x highlighted=%r" % (time.perf_counter() - t0, msg, hmenu, hi))
+					return res
 			except Exception:
 				log.exception("menutrace sub")
 			return _DefSubclassProc(hwnd, msg, wParam, lParam)
@@ -1001,6 +1114,7 @@ class DevHook:
 			try:
 				if code == HCBT_CREATEWND and clsName(wParam) == "#32768":
 					lines.append("%7.3f CBT create popup hwnd=%#x" % (time.perf_counter() - t0, wParam))
+					popups.append(wParam)
 					_SetWindowSubclass(wParam, subProc, 99, 0)
 			except Exception:
 				log.exception("menutrace cbt")
@@ -1009,14 +1123,26 @@ class DevHook:
 		cbtProc = CBTPROC(cbt)
 		self._keep.append(cbtProc)
 
+		popups = []
+
 		def finish():
 			_user32.EndMenu()
 			lines.append("%7.3f EndMenu called" % (time.perf_counter() - t0))
 
+		def arrow():
+			# Move the highlight with a Down key POSTED to the popup menu window itself (a
+			# message to one window of this process; nothing goes through the keyboard).
+			for h in popups[:1]:
+				_user32.PostMessageW(h, 0x0100, 0x28, 0)  # WM_KEYDOWN, VK_DOWN
+				_user32.PostMessageW(h, 0x0101, 0x28, 0)
+				lines.append("%7.3f posted VK_DOWN to %#x" % (time.perf_counter() - t0, h))
+
 		def popup():
 			state["hook"] = _SetWindowsHookExW(WH_CBT, cbtProc, None, ctypes.windll.kernel32.GetCurrentThreadId())
 			lines.append("%7.3f hook=%r" % (time.perf_counter() - t0, state["hook"]))
-			self._later = wx.CallLater(700, finish)
+			self._later = wx.CallLater(1200, finish)
+			self._later2 = wx.CallLater(400, arrow)
+			self._later3 = wx.CallLater(700, arrow)
 			lines.append("%7.3f popping" % (time.perf_counter() - t0))
 			gui.mainFrame.sysTrayIcon.onActivate(None)
 			lines.append("%7.3f popup returned" % (time.perf_counter() - t0))

@@ -20,7 +20,7 @@ from scriptHandler import script
 import ui
 import wx
 
-from . import darkdocs, theming
+from . import darkdocs, native, theming
 
 try:
 	from . import devhook  # development builds only; absent from the packaged add-on
@@ -36,12 +36,20 @@ CONF_SECTION = "darkMode"
 config.conf.spec[CONF_SECTION] = {
 	"mode": "option('dark', 'off', default='dark')",
 	"restartWhenOff": "boolean(default=True)",
+	"thickOutlines": "boolean(default=False)",
 }
 
 
 def wantDark() -> bool:
 	"""The user's preference, before the engine applies its High Contrast override."""
 	return config.conf[CONF_SECTION]["mode"] != "off"
+
+
+def applyRingWidth(repaint: bool = True):
+	"""Focus rings and the menu outline: one pixel, or two with the thicker-outlines setting."""
+	native.setRingWidth(2 if config.conf[CONF_SECTION]["thickOutlines"] else 1)
+	if repaint:
+		theming.repaintAllWindows()
 
 
 def setMode(mode: str):
@@ -87,6 +95,11 @@ class DarkModeSettingsPanel(SettingsPanel):
 			wx.CheckBox(self, label=_("&Restart NVDA when dark mode is turned off"))
 		)
 		self.restartCheckBox.SetValue(bool(config.conf[CONF_SECTION]["restartWhenOff"]))
+		self.thickCheckBox = sHelper.addItem(
+			# Translators: label of the check box that makes focus rings and the menu outline two pixels thick.
+			wx.CheckBox(self, label=_("&Thicker focus outlines"))
+		)
+		self.thickCheckBox.SetValue(bool(config.conf[CONF_SECTION]["thickOutlines"]))
 		note = wx.StaticText(
 			self,
 			# Translators: explanatory text shown in the Dark Mode settings category.
@@ -100,6 +113,8 @@ class DarkModeSettingsPanel(SettingsPanel):
 
 	def onSave(self):
 		config.conf[CONF_SECTION]["restartWhenOff"] = self.restartCheckBox.IsChecked()
+		config.conf[CONF_SECTION]["thickOutlines"] = self.thickCheckBox.IsChecked()
+		applyRingWidth()
 		setMode("dark" if self.enabledCheckBox.IsChecked() else "off")
 
 
@@ -122,6 +137,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		except Exception:
 			log.exception("darkMode: could not add the menu item")
 		try:
+			applyRingWidth(repaint=False)
 			self.engine.start()
 		except Exception:
 			log.exception("darkMode: engine failed to start")
@@ -193,6 +209,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		super().terminate()
 
 	def onConfigChanged(self, **kwargs):
+		applyRingWidth()
 		self.engine.refresh()
 
 	@script(

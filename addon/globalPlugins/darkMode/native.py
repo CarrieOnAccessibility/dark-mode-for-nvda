@@ -148,6 +148,59 @@ class NMCUSTOMDRAW(ctypes.Structure):
 	]
 
 
+class LVITEMW(ctypes.Structure):
+	_fields_ = [
+		("mask", wintypes.UINT),
+		("iItem", ctypes.c_int),
+		("iSubItem", ctypes.c_int),
+		("state", wintypes.UINT),
+		("stateMask", wintypes.UINT),
+		("pszText", wintypes.LPWSTR),
+		("cchTextMax", ctypes.c_int),
+		("iImage", ctypes.c_int),
+		("lParam", ctypes.c_ssize_t),
+		("iIndent", ctypes.c_int),
+		("iGroupId", ctypes.c_int),
+		("cColumns", wintypes.UINT),
+		("puColumns", ctypes.c_void_p),
+		("piColFmt", ctypes.c_void_p),
+		("iGroup", ctypes.c_int),
+	]
+
+
+class LVCOLUMNW(ctypes.Structure):
+	_fields_ = [
+		("mask", wintypes.UINT),
+		("fmt", ctypes.c_int),
+		("cx", ctypes.c_int),
+		("pszText", wintypes.LPWSTR),
+		("cchTextMax", ctypes.c_int),
+		("iSubItem", ctypes.c_int),
+		("iImage", ctypes.c_int),
+		("iOrder", ctypes.c_int),
+		("cxMin", ctypes.c_int),
+		("cxDefault", ctypes.c_int),
+		("cxIdeal", ctypes.c_int),
+	]
+
+
+class NMLVCUSTOMDRAW(ctypes.Structure):
+	_fields_ = [
+		("nmcd", NMCUSTOMDRAW),
+		("clrText", wintypes.COLORREF),
+		("clrTextBk", wintypes.COLORREF),
+		("iSubItem", ctypes.c_int),
+		("dwItemType", wintypes.DWORD),
+		("clrFace", wintypes.COLORREF),
+		("iIconEffect", ctypes.c_int),
+		("iIconPhase", ctypes.c_int),
+		("iPartId", ctypes.c_int),
+		("iStateId", ctypes.c_int),
+		("rcText", RECT),
+		("uAlign", wintypes.UINT),
+	]
+
+
 # Menu bar drawing hooks. Windows sends these undocumented "UAH" messages to a window
 # with a menu bar so that themed apps can draw the bar themselves; the menu items are
 # untouched (still in the HMENU, still read by screen readers), only the pixels change.
@@ -363,6 +416,8 @@ CDDS_ITEMPREPAINT = 0x00010001
 CDRF_DODEFAULT = 0x0
 CDRF_SKIPDEFAULT = 0x4
 CDRF_NOTIFYITEMDRAW = 0x20
+CDRF_NEWFONT = 0x2
+CDIS_FOCUS = 0x0010
 TBCD_CHANNEL = 0x3
 TBCD_THUMB = 0x2
 TBM_GETTHUMBRECT = 0x0400 + 25
@@ -429,6 +484,47 @@ CBS_CHECKEDNORMAL = 5
 CBS_CHECKEDDISABLED = 8
 COLOR_HIGHLIGHT = 13
 COLOR_HIGHLIGHTTEXT = 14
+UIS_SET = 1
+UIS_CLEAR = 2
+LB_GETSEL = 0x0187
+LB_GETCURSEL = 0x0188
+LB_GETTEXT = 0x0189
+LB_GETTEXTLEN = 0x018A
+LB_GETCOUNT = 0x018B
+LB_GETTOPINDEX = 0x018E
+LB_GETITEMRECT = 0x0198
+LB_GETCARETINDEX = 0x019F
+LBS_MULTIPLESEL = 0x0008
+LBS_EXTENDEDSEL = 0x0800
+LVM_GETNEXTITEM = 0x1000 + 12
+LVM_GETITEMRECT = 0x1000 + 14
+LVNI_FOCUSED = 0x0001
+LVIR_BOUNDS = 0
+TVM_GETITEMRECT = 0x1100 + 4
+TVM_GETNEXTITEM = 0x1100 + 10
+TVGN_CARET = 9
+LVM_GETIMAGELIST = 0x1000 + 2
+LVM_GETHEADER = 0x1000 + 31
+LVM_GETITEMSTATE = 0x1000 + 44
+LVM_GETEXTENDEDLISTVIEWSTYLE = 0x1000 + 55
+LVM_GETSUBITEMRECT = 0x1000 + 56
+LVM_GETCOLUMNW = 0x1000 + 95
+LVM_GETITEMTEXTW = 0x1000 + 115
+LVIS_SELECTED = 0x0002
+LVIS_STATEIMAGEMASK = 0xF000
+LVS_EX_CHECKBOXES = 0x0004
+LVS_EX_FULLROWSELECT = 0x0020
+LVSIL_SMALL = 1
+LVIR_ICON = 1
+LVIR_LABEL = 2
+LVCF_FMT = 0x1
+LVCFMT_JUSTIFYMASK = 0x3
+LVCFMT_RIGHT = 0x1
+LVCFMT_CENTER = 0x2
+LISTVIEW_TEXT_X = 2  # first column: text inset inside the label rect, measured against Windows' own rows (dev/exp_focus.py)
+LISTVIEW_SUBITEM_LEFT = 6  # other columns: Windows pads their text more
+LISTVIEW_SUBITEM_RIGHT = 8
+_NEG1 = (1 << (8 * ctypes.sizeof(ctypes.c_void_p))) - 1  # -1 as an unsigned WPARAM
 DT_LEFT = 0x0
 DT_NOPREFIX = 0x800
 DT_END_ELLIPSIS = 0x8000
@@ -447,6 +543,9 @@ ID_STATICBOX = 11  # group boxes (wx.StaticBox / wx.RadioBox): our own border an
 ID_STATICLINE = 12  # wx.StaticLine: one soft line instead of the etched white/grey pair
 ID_RADIO = 13  # radio buttons: theme glyph plus a label we draw (the dark theme has no light radio text)
 ID_SLIDER = 14  # trackbars: track whether the mouse is over the thumb (custom draw does not say)
+ID_FOCUS = 15  # check boxes, dropdowns, list views, trees: a solid focus ring instead of Windows' dotted one
+ID_FOCUSCHILD = 16  # the edit inside an editable combo box: repaint the combo's ring when focus moves
+ID_LISTBOX = 17  # plain list boxes and dropdown lists: our selection colour over Windows' bright accent
 
 
 def colorref(rgb):
@@ -462,8 +561,8 @@ PARENT_BG = (0x20, 0x20, 0x20)  # dialog background, shows behind rounded button
 GRIP_DOT = (0x62, 0x62, 0x62)  # size grip dots: visible if you look for them, nothing more
 LAYOUT_LINE = (0x8C, 0x8C, 0x8C)  # structure, not controls: panel frames, group boxes, separators, under the title bar
 SLIDER_TRACK = (0x8C, 0x8C, 0x8C)  # the groove a slider thumb runs in
-SLIDER_THUMB = (0x00, 0x78, 0xD7)  # the thumb, as Windows drew it
-SLIDER_THUMB_HOT = (0x60, 0xCD, 0xFF)  # hovered: the accent blue (Windows painted it black)
+SLIDER_THUMB = (0x60, 0xCD, 0xFF)  # the thumb: the same accent blue as a checked check box
+SLIDER_THUMB_HOT = (0x00, 0x78, 0xD7)  # hovered: the darker accent (Windows painted it black)
 SLIDER_THUMB_PRESSED = (0x00, 0x5F, 0xB8)
 SLIDER_THUMB_DISABLED = (0x70, 0x70, 0x70)
 MENUBAR_BG = (0x20, 0x20, 0x20)  # menu bar strip (log viewer, Python console): same as the window
@@ -484,6 +583,9 @@ LIST_BG = (0x2B, 0x2B, 0x2B)
 LIST_TEXT = (0xFF, 0xFF, 0xFF)
 LIST_DISABLED_TEXT = (0x8A, 0x8A, 0x8A)
 LIST_SEL_UNFOCUSED_BG = (0x50, 0x50, 0x50)  # selected row while the list does not have focus
+LIST_SEL_BG = (0x1E, 0x5A, 0x8C)  # selected row: between the sidebar's dark blue and Windows' bright accent (white text 7.3:1)
+LIST_SEL_TEXT = (0xFF, 0xFF, 0xFF)
+RING = 1  # focus rings and the menu outline, in pixels; 2 with the "thicker outlines" setting
 TAB_TEXT = (0xC8, 0xC8, 0xC8)  # unselected tab label
 TAB_SELECTED_FACE = (0x3A, 0x3A, 0x3A)
 TAB_HOT_FACE = (0x50, 0x50, 0x50)
@@ -537,16 +639,248 @@ def _paintFrame(hwnd):
 			return
 		focused = _GetFocus() == hwnd
 		outer = _CreateSolidBrush(colorref(FOCUS if focused else _frameColours.get(hwnd, BORDER)))
-		inner = _CreateSolidBrush(colorref(FOCUS if focused else FRAME_INNER))
+		inner = _CreateSolidBrush(colorref(FRAME_INNER))
 		try:
 			for i in range(thick):
 				rc = RECT(i, i, w - i, h - i)
-				_FrameRect(hdc, ctypes.byref(rc), outer if i == 0 else inner)
+				# focused: the ring is RING lines deep; the rest stays the field colour
+				_FrameRect(hdc, ctypes.byref(rc), outer if (i == 0 or (focused and i < RING)) else inner)
 		finally:
 			_DeleteObject(outer)
 			_DeleteObject(inner)
 	finally:
 		_ReleaseDC(hwnd, hdc)
+
+
+def _drawRing(hdc, rc, rgb, width=None):
+	"""A solid frame just inside rc, RING pixels thick (or width)."""
+	width = RING if width is None else width
+	brush = _CreateSolidBrush(colorref(rgb))
+	try:
+		for i in range(width):
+			r = RECT(rc.left + i, rc.top + i, rc.right - i, rc.bottom - i)
+			if r.right <= r.left or r.bottom <= r.top:
+				break
+			_FrameRect(hdc, ctypes.byref(r), brush)
+	finally:
+		_DeleteObject(brush)
+
+
+def _hasFocus(hwnd):
+	"""Keyboard focus is on this window or inside it (an editable combo's edit box)."""
+	f = _GetFocus()
+	return bool(f) and (f == hwnd or bool(_user32.IsChild(hwnd, f)))
+
+
+def _focusCuesVisible(hwnd):
+	"""Whether Windows would show a focus rectangle: it hides them until the keyboard is used.
+	We keep the real answer ourselves (see _uiStateMessage), because the control is told to hide its own."""
+	state = _trueUI.get(hwnd)
+	if state is None:
+		state = _SendMessageW(hwnd, WM_QUERYUISTATE, 0, 0)
+	return not (state & UISF_HIDEFOCUS)
+
+
+def _uiStateMessage(hwnd, msg, wParam, lParam):
+	"""Shared by the controls whose dotted focus rectangle we replace. Windows' rectangle is
+	suppressed by telling the control focus cues are hidden; the real state is kept in _trueUI
+	so our ring appears exactly when Windows' rectangle would have. Returns (handled, result)."""
+	if msg == WM_UPDATEUISTATE:
+		res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+		_trueUI[hwnd] = _DefSubclassProc(hwnd, WM_QUERYUISTATE, 0, 0)
+		_DefSubclassProc(hwnd, WM_UPDATEUISTATE, (UISF_HIDEFOCUS << 16) | UIS_SET, 0)
+		_InvalidateRect(hwnd, None, False)
+		return True, res
+	if msg == WM_QUERYUISTATE:
+		return True, _DefSubclassProc(hwnd, msg, wParam, lParam) | UISF_HIDEFOCUS
+	return False, 0
+
+
+def _className(hwnd):
+	buf = ctypes.create_unicode_buffer(64)
+	_user32.GetClassNameW(hwnd, buf, 64)
+	return buf.value
+
+
+def _focusRect(hwnd):
+	"""Where the focus ring goes: the focused row of a list view or tree, else the whole control."""
+	rc = RECT()
+	_GetClientRect(hwnd, ctypes.byref(rc))
+	cls = _className(hwnd)
+	if cls == "SysListView32":
+		i = _SendMessageW(hwnd, LVM_GETNEXTITEM, _NEG1, LVNI_FOCUSED)
+		if i < 0:
+			return None
+		row = RECT(LVIR_BOUNDS, 0, 0, 0)
+		if not _SendMessageW(hwnd, LVM_GETITEMRECT, i, ctypes.addressof(row)):
+			return None
+		return RECT(max(rc.left, row.left), max(rc.top, row.top), min(rc.right, row.right), min(rc.bottom, row.bottom))
+	if cls == "SysTreeView32":
+		item = _SendMessageW(hwnd, TVM_GETNEXTITEM, TVGN_CARET, 0)
+		if not item:
+			return None
+		row = RECT()
+		ctypes.cast(ctypes.addressof(row), ctypes.POINTER(ctypes.c_size_t))[0] = item  # the item goes in first
+		if not _SendMessageW(hwnd, TVM_GETITEMRECT, 0, ctypes.addressof(row)):  # 0: the whole line
+			return None
+		return RECT(rc.left, max(rc.top, row.top), rc.right, min(rc.bottom, row.bottom))
+	return rc
+
+
+def _listViewItemText(hwnd, item, sub):
+	buf = ctypes.create_unicode_buffer(512)
+	lvi = LVITEMW()
+	lvi.iSubItem = sub
+	lvi.pszText = ctypes.cast(buf, wintypes.LPWSTR)
+	lvi.cchTextMax = 512
+	n = _SendMessageW(hwnd, LVM_GETITEMTEXTW, item, ctypes.addressof(lvi))
+	return buf.value if n > 0 else ""
+
+
+def _listViewColumnFormat(hwnd, col):
+	lvc = LVCOLUMNW()
+	lvc.mask = LVCF_FMT
+	if _SendMessageW(hwnd, LVM_GETCOLUMNW, col, ctypes.addressof(lvc)):
+		return lvc.fmt & LVCFMT_JUSTIFYMASK
+	return 0
+
+
+def _drawListViewRow(hwnd, hdc, item):
+	"""A selected list view row, in our selection colour: the theme would paint its own highlight
+	and ignore any colour we hand it. Returns False (let Windows draw) for lists with icons."""
+	if _SendMessageW(hwnd, LVM_GETIMAGELIST, LVSIL_SMALL, 0):
+		return False
+	bounds = RECT(LVIR_BOUNDS, 0, 0, 0)
+	label = RECT(LVIR_LABEL, 0, 0, 0)
+	if not _SendMessageW(hwnd, LVM_GETITEMRECT, item, ctypes.addressof(bounds)):
+		return False
+	if not _SendMessageW(hwnd, LVM_GETITEMRECT, item, ctypes.addressof(label)):
+		return False
+	ex = _SendMessageW(hwnd, LVM_GETEXTENDEDLISTVIEWSTYLE, 0, 0)
+	client = RECT()
+	_GetClientRect(hwnd, ctypes.byref(client))
+	focused = _hasFocus(hwnd)
+	fill = RECT(bounds.left, bounds.top, min(bounds.right, client.right), bounds.bottom)
+	if not ex & LVS_EX_FULLROWSELECT:
+		fill = RECT(label.left, label.top, label.right, label.bottom)
+	brush = _CreateSolidBrush(colorref(LIST_SEL_BG if focused else LIST_SEL_UNFOCUSED_BG))
+	_FillRect(hdc, ctypes.byref(fill), brush)
+	_DeleteObject(brush)
+	if ex & LVS_EX_CHECKBOXES:
+		# the state image (check box) sits between the row's left edge and the label
+		stateImage = (_SendMessageW(hwnd, LVM_GETITEMSTATE, item, LVIS_STATEIMAGEMASK) & LVIS_STATEIMAGEMASK) >> 12
+		if stateImage:
+			height = bounds.bottom - bounds.top
+			glyph = max(12, min(height - 4, label.left - bounds.left - 2))
+			theme = _OpenThemeData(hwnd, "Button")
+			if theme:
+				size = SIZE()
+				if _GetThemePartSize(theme, hdc, BP_CHECKBOX, CBS_UNCHECKEDNORMAL, None, 1, ctypes.byref(size)) == 0 and size.cx:
+					glyph = min(size.cx, height)
+				x = bounds.left + max(0, (label.left - bounds.left - glyph) // 2)
+				y = bounds.top + (height - glyph) // 2
+				box = RECT(x, y, x + glyph, y + glyph)
+				_DrawThemeBackground(theme, hdc, BP_CHECKBOX, CBS_CHECKEDNORMAL if stateImage == 2 else CBS_UNCHECKEDNORMAL, ctypes.byref(box), None)
+				_CloseThemeData(theme)
+	font = _SendMessageW(hwnd, WM_GETFONT, 0, 0)
+	oldFont = _SelectObject(hdc, font) if font else None
+	_SetBkMode(hdc, TRANSPARENT)
+	_SetTextColor(hdc, colorref(LIST_SEL_TEXT))
+	header = _SendMessageW(hwnd, LVM_GETHEADER, 0, 0)
+	columns = _SendMessageW(header, HDM_GETITEMCOUNT, 0, 0) if header else 1
+	for col in range(max(1, columns)):
+		if col == 0:
+			cell = label
+		else:
+			cell = RECT(LVIR_LABEL, col, 0, 0)
+			if not _SendMessageW(hwnd, LVM_GETSUBITEMRECT, item, ctypes.addressof(cell)):
+				continue
+		text = _listViewItemText(hwnd, item, col)
+		if not text:
+			continue
+		fmt = _listViewColumnFormat(hwnd, col)
+		flags = DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS
+		flags |= DT_RIGHT if fmt == LVCFMT_RIGHT else DT_CENTER if fmt == LVCFMT_CENTER else DT_LEFT
+		if col == 0:
+			trc = RECT(cell.left + LISTVIEW_TEXT_X, cell.top, cell.right - LISTVIEW_TEXT_X, cell.bottom)
+		else:
+			trc = RECT(cell.left + LISTVIEW_SUBITEM_LEFT, cell.top, cell.right - LISTVIEW_SUBITEM_RIGHT, cell.bottom)
+		_DrawTextW(hdc, text, -1, ctypes.byref(trc), flags)
+	if oldFont:
+		_SelectObject(hdc, oldFont)
+	return True
+
+
+def _paintFocusOverlay(hwnd):
+	"""After the control has painted itself: our ring where Windows would have put dotted lines."""
+	if not _hasFocus(hwnd) or not _focusCuesVisible(hwnd):
+		return
+	rc = _focusRect(hwnd)
+	if rc is None:
+		return
+	hdc = _GetDC(hwnd)
+	if not hdc:
+		return
+	try:
+		_drawRing(hdc, rc, FOCUS)
+	finally:
+		_ReleaseDC(hwnd, hdc)
+
+
+def _listBoxText(hwnd, index):
+	n = _SendMessageW(hwnd, LB_GETTEXTLEN, index, 0)
+	if n < 0:
+		return None
+	buf = ctypes.create_unicode_buffer(n + 1)
+	_SendMessageW(hwnd, LB_GETTEXT, index, ctypes.addressof(buf))
+	return buf
+
+
+def _overdrawListBox(hwnd):
+	"""A plain list box (or a dropdown's list) after Windows painted it: selected rows in our
+	selection colour rather than the system accent, and our ring on the row with the caret."""
+	count = _SendMessageW(hwnd, LB_GETCOUNT, 0, 0)
+	if count <= 0:
+		return
+	style = _GetWindowLongW(hwnd, GWL_STYLE)
+	multi = bool(style & (LBS_MULTIPLESEL | LBS_EXTENDEDSEL))
+	cur = _SendMessageW(hwnd, LB_GETCURSEL, 0, 0)
+	top = max(0, _SendMessageW(hwnd, LB_GETTOPINDEX, 0, 0))
+	client = RECT()
+	_GetClientRect(hwnd, ctypes.byref(client))
+	focused = _hasFocus(hwnd)
+	caret = _SendMessageW(hwnd, LB_GETCARETINDEX, 0, 0) if focused and _focusCuesVisible(hwnd) else -1
+	hdc = _GetDC(hwnd)
+	if not hdc:
+		return
+	try:
+		font = _SendMessageW(hwnd, WM_GETFONT, 0, 0)
+		oldFont = _SelectObject(hdc, font) if font else None
+		_SetBkMode(hdc, TRANSPARENT)
+		_SetTextColor(hdc, colorref(LIST_SEL_TEXT))
+		brush = _CreateSolidBrush(colorref(LIST_SEL_BG))
+		for i in range(top, count):
+			rc = RECT()
+			if _SendMessageW(hwnd, LB_GETITEMRECT, i, ctypes.addressof(rc)) == -1 or rc.top >= client.bottom:
+				break
+			selected = (_SendMessageW(hwnd, LB_GETSEL, i, 0) > 0) if multi else (i == cur)
+			if selected:
+				_FillRect(hdc, ctypes.byref(rc), brush)
+				text = _listBoxText(hwnd, i)
+				if text:
+					# Where the list box itself puts the text: two pixels in from the left, top-aligned.
+					trc = RECT(rc.left + LISTBOX_TEXT_X, rc.top, rc.right, rc.bottom)
+					_DrawTextW(hdc, text, -1, ctypes.byref(trc), DT_LEFT | DT_SINGLELINE | DT_NOPREFIX)
+			if i == caret:
+				_drawRing(hdc, rc, FOCUS)
+		_DeleteObject(brush)
+		if oldFont:
+			_SelectObject(hdc, oldFont)
+	finally:
+		_ReleaseDC(hwnd, hdc)
+
+
+LISTBOX_TEXT_X = 2  # measured against Windows' own rows on the bench (dev/exp_focus.py); keep the two in step
 
 
 def _paintButton(hwnd):
@@ -574,6 +908,9 @@ def _drawButton(hwnd, hdc):
 		face, border, text = BTN_HOT, BTN_HOT_BORDER, BTN_TEXT
 	else:
 		face, border, text = BTN_FACE, BORDER, BTN_TEXT
+	focusRing = focused and not (uistate & UISF_HIDEFOCUS)
+	if focusRing:
+		border = FOCUS  # the border is the ring's first pixel
 
 	bg = _CreateSolidBrush(colorref(PARENT_BG))
 	_FillRect(hdc, ctypes.byref(rc), bg)
@@ -592,8 +929,8 @@ def _drawButton(hwnd, hdc):
 	_DeleteObject(brush)
 
 	ring = None
-	if focused and not (uistate & UISF_HIDEFOCUS):
-		ring = FOCUS
+	if focusRing:
+		ring = FOCUS if RING >= 2 else None  # thick: a second line inside the border
 	elif default and enabled:
 		ring = border
 	if ring:
@@ -921,8 +1258,8 @@ def _paintCheckItem(dis):
 		return False  # wrapper gone: let Windows draw rather than draw wrong
 
 	if selected and hasFocus:
-		bg = _GetSysColor(COLOR_HIGHLIGHT)
-		fg = _GetSysColor(COLOR_HIGHLIGHTTEXT)
+		bg = colorref(LIST_SEL_BG)
+		fg = colorref(LIST_SEL_TEXT)
 	elif selected:
 		bg = colorref(LIST_SEL_UNFOCUSED_BG)
 		fg = colorref(LIST_TEXT)
@@ -963,9 +1300,7 @@ def _paintCheckItem(dis):
 	if oldFont:
 		_SelectObject(hdc, oldFont)
 	if dis.itemState & ODS_FOCUS and hasFocus:
-		ring = _CreateSolidBrush(colorref(FOCUS))
-		_FrameRect(hdc, ctypes.byref(rc), ring)
-		_DeleteObject(ring)
+		_drawRing(hdc, rc, FOCUS)
 	return True
 
 
@@ -1052,10 +1387,8 @@ def _drawRadio(hwnd, hdc):
 		if focused and not (uistate & UISF_HIDEFOCUS):
 			calc = RECT(0, 0, 0, 0)
 			_DrawTextW(hdc, text, -1, ctypes.byref(calc), flags | DT_CALCRECT)
-			ring = _CreateSolidBrush(colorref(FOCUS))
 			fr = RECT(glyph + gap - 1, max(0, (h - calc.bottom) // 2 - 1), min(w, glyph + gap + calc.right + 2), min(h, (h + calc.bottom) // 2 + 1))
-			_FrameRect(hdc, ctypes.byref(fr), ring)
-			_DeleteObject(ring)
+			_drawRing(hdc, fr, FOCUS)
 		if oldFont:
 			_SelectObject(hdc, oldFont)
 
@@ -1114,7 +1447,7 @@ def _drawTabs(hwnd, hdc):
 		_DeleteObject(pen)
 		_DeleteObject(brush)
 		if isSel and focused and not (uistate & UISF_HIDEFOCUS):
-			pen = _CreatePen(PS_SOLID, 1, colorref(FOCUS))
+			pen = _CreatePen(PS_SOLID, RING, colorref(FOCUS))
 			hollow = _gdi32.GetStockObject(5)
 			oldPen = _SelectObject(hdc, pen)
 			oldBrush = _SelectObject(hdc, hollow)
@@ -1251,11 +1584,17 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 			_eraseColours.pop(hwnd, None)
 			_frameColours.pop(hwnd, None)
 			_sliders.discard(hwnd)
+			_listViews.discard(hwnd)
 			_sliderHot.pop(hwnd, None)
 			_boxRects.pop(hwnd, None)
 			_framePending.discard(hwnd)
 			_tabHot.pop(hwnd, None)
+			_trueUI.pop(hwnd, None)
 			return _DefSubclassProc(hwnd, msg, wParam, lParam)
+		if idSubclass in (ID_FOCUS, ID_SLIDER, ID_LISTBOX):
+			handled, res = _uiStateMessage(hwnd, msg, wParam, lParam)
+			if handled:
+				return res
 		if idSubclass == ID_OWNERDRAW:
 			if msg == WM_DRAWITEM:
 				dis = DRAWITEMSTRUCT.from_address(lParam)
@@ -1263,6 +1602,19 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 					return 1
 			elif msg == WM_NOTIFY:
 				hdr = NMHDR.from_address(lParam)
+				if hdr.code == NM_CUSTOMDRAW and hdr.hwndFrom in _listViews:
+					# Selected rows of a list view in our selection colour. The theme paints its
+					# own highlight and ignores any colour handed back through custom draw, so
+					# selected rows are painted here in full and Windows skips them.
+					cd = NMLVCUSTOMDRAW.from_address(lParam)
+					if cd.nmcd.dwDrawStage == CDDS_PREPAINT:
+						return _DefSubclassProc(hwnd, msg, wParam, lParam) | CDRF_NOTIFYITEMDRAW
+					if cd.nmcd.dwDrawStage == CDDS_ITEMPREPAINT:
+						# uItemState says "selected" for every row under the Explorer theme; ask the list.
+						sel = _SendMessageW(hdr.hwndFrom, LVM_GETITEMSTATE, cd.nmcd.dwItemSpec, LVIS_SELECTED) & LVIS_SELECTED
+						if sel and _drawListViewRow(hdr.hwndFrom, cd.nmcd.hdc, cd.nmcd.dwItemSpec):
+							return CDRF_SKIPDEFAULT
+					return _DefSubclassProc(hwnd, msg, wParam, lParam)
 				if hdr.code == NM_CUSTOMDRAW and hdr.hwndFrom in _sliders:
 					cd = NMCUSTOMDRAW.from_address(lParam)
 					if cd.dwDrawStage == CDDS_PREPAINT:
@@ -1362,7 +1714,40 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 				_cleanUpAfterBoxMove(hwnd)
 				return res
+		elif idSubclass == ID_FOCUS:
+			if msg == WM_PAINT:
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				_paintFocusOverlay(hwnd)
+				return res
+			if msg in (WM_SETFOCUS, WM_KILLFOCUS):
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				_InvalidateRect(hwnd, None, False)
+				return res
+		elif idSubclass == ID_FOCUSCHILD:
+			if msg in (WM_SETFOCUS, WM_KILLFOCUS):
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				parent = _user32.GetParent(hwnd)
+				if parent:
+					_InvalidateRect(parent, None, False)
+				return res
+		elif idSubclass == ID_LISTBOX:
+			if msg == WM_PAINT:
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				_overdrawListBox(hwnd)
+				return res
+			if msg in (WM_SETFOCUS, WM_KILLFOCUS):
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				_InvalidateRect(hwnd, None, False)
+				return res
 		elif idSubclass == ID_SLIDER:
+			if msg == WM_PAINT:
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				_paintFocusOverlay(hwnd)
+				return res
+			if msg in (WM_SETFOCUS, WM_KILLFOCUS):
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				_InvalidateRect(hwnd, None, False)
+				return res
 			if msg == WM_MOUSEMOVE:
 				rc = RECT()
 				_SendMessageW(hwnd, TBM_GETTHUMBRECT, 0, ctypes.addressof(rc))
@@ -1452,6 +1837,14 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 					_FillRect(wParam, ctypes.byref(rc), brush)
 					_DeleteObject(brush)
 		elif idSubclass == ID_MENUPOPUP:
+			if msg == WM_UAHDRAWMENUITEM:
+				# Windows draws each item of a dark popup menu through this message, the
+				# highlighted one included (arrow keys and mouse hover alike). Outline it.
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				dmi = UAHDRAWMENUITEM.from_address(lParam)
+				if dmi.dis.itemState & (ODS_SELECTED | ODS_HOTLIGHT) and MENU_OUTLINE:
+					_drawRing(dmi.dis.hDC, dmi.dis.rcItem, FOCUS)
+				return res
 			if msg == WM_ERASEBKGND:
 				# Windows erases a new popup menu with the light menu colour and paints the
 				# dark menu later. In NVDA "later" is tens of ms (it reads its own menu in
@@ -1479,10 +1872,13 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 
 
 _sliders = set()  # trackbar hwnds whose channel we draw (their parent carries ID_OWNERDRAW)
+_listViews = set()  # list view hwnds whose selected rows we colour (their parent carries ID_OWNERDRAW)
 _sliderHot = {}  # trackbar hwnd -> mouse is over its thumb
 _boxRects = {}  # group box hwnd -> last known window rect (screen coords), to clean up after a move
 _eraseColours = {}  # hwnd -> rgb laid down on WM_ERASEBKGND (ID_ERASE)
 _frameColours = {}  # hwnd -> frame colour when not focused (ID_FRAME); default BORDER
+_trueUI = {}  # hwnd -> the UI state Windows really has for it (focus cues shown or hidden); see _uiStateMessage
+MENU_OUTLINE = True  # outline the highlighted popup menu item
 _subclassProc = _SUBCLASSPROC(_proc)  # must stay alive for as long as any window is subclassed
 
 
@@ -1668,16 +2064,73 @@ def applyEraseBase(hwnd, rgb, dark: bool):
 		_detach(hwnd, ID_ERASE)
 
 
+def _hideFocusCues(hwnd, idSubclass, dark: bool):
+	"""Attach/detach a subclass that replaces Windows' dotted focus rectangle with our ring.
+	The control is told its focus cues are hidden (so Windows draws none) while the real
+	state is remembered; on the way out the real state is put back."""
+	if dark:
+		if hwnd in _trueUI:
+			return
+		_trueUI[hwnd] = _SendMessageW(hwnd, WM_QUERYUISTATE, 0, 0)  # the truth, before we intercept
+		_SendMessageW(hwnd, WM_UPDATEUISTATE, (UISF_HIDEFOCUS << 16) | UIS_SET, 0)
+		_attach(hwnd, idSubclass)
+	else:
+		_detach(hwnd, idSubclass)
+		state = _trueUI.pop(hwnd, None)
+		if state is not None and _IsWindow(hwnd):
+			action = UIS_SET if state & UISF_HIDEFOCUS else UIS_CLEAR
+			_SendMessageW(hwnd, WM_UPDATEUISTATE, (UISF_HIDEFOCUS << 16) | action, 0)
+
+
+def applyFocusRing(hwnd, dark: bool):
+	"""Our focus ring on a check box, dropdown, list view or tree (Windows' dotted one is hidden)."""
+	_hideFocusCues(hwnd, ID_FOCUS, dark)
+	if _className(hwnd) == "ComboBox":
+		child = _GetWindow(hwnd, GW_CHILD)
+		while child:
+			if _className(child) == "Edit":
+				if dark:
+					_attach(child, ID_FOCUSCHILD)
+				else:
+					_detach(child, ID_FOCUSCHILD)
+			child = _GetWindow(child, GW_HWNDNEXT)
+	if _IsWindow(hwnd):
+		_InvalidateRect(hwnd, None, False)
+
+
+def applyListBox(hwnd, dark: bool):
+	"""Our selection colour and focus ring on a plain list box (or a dropdown's list)."""
+	_hideFocusCues(hwnd, ID_LISTBOX, dark)
+	if _IsWindow(hwnd):
+		_InvalidateRect(hwnd, None, False)
+
+
+def setRingWidth(pixels: int):
+	global RING
+	RING = 2 if pixels >= 2 else 1
+
+
 def registerSlider(hwnd, hwndParent, dark: bool):
 	"""Grey groove for a wx.Slider (custom draw arrives at the parent as WM_NOTIFY)."""
 	if dark:
 		_sliders.add(hwnd)
 		_attach(hwndParent, ID_OWNERDRAW)
-		_attach(hwnd, ID_SLIDER)
+		_hideFocusCues(hwnd, ID_SLIDER, True)
 	else:
 		_sliders.discard(hwnd)
 		_sliderHot.pop(hwnd, None)
-		_detach(hwnd, ID_SLIDER)
+		_hideFocusCues(hwnd, ID_SLIDER, False)
+	if _IsWindow(hwnd):
+		_InvalidateRect(hwnd, None, True)
+
+
+def registerListView(hwnd, hwndParent, dark: bool):
+	"""Our selection colour on a list view's selected rows (custom draw arrives at the parent)."""
+	if dark:
+		_listViews.add(hwnd)
+		_attach(hwndParent, ID_OWNERDRAW)
+	else:
+		_listViews.discard(hwnd)
 	if _IsWindow(hwnd):
 		_InvalidateRect(hwnd, None, True)
 
@@ -1715,6 +2168,7 @@ _menuHook = None
 
 
 TOOLTIP_CLASS = "tooltips_class32"
+COMBO_LIST_CLASS = "ComboLBox"
 _SetWindowTheme = ctypes.windll.uxtheme.SetWindowTheme
 _SetWindowTheme.argtypes = (wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR)
 
@@ -1734,6 +2188,8 @@ def _cbt(code, wParam, lParam):
 				_attach(wParam, ID_MENUPOPUP)
 			elif buf.value == TOOLTIP_CLASS:
 				themeTooltip(wParam, True)
+			elif buf.value == COMBO_LIST_CLASS:
+				_attach(wParam, ID_LISTBOX)  # the list a combo box drops down
 	except Exception:
 		log.exception("darkMode: menu hook failed")
 	return _CallNextHookEx(_menuHook, code, wParam, lParam)
@@ -1764,6 +2220,7 @@ def detachAll():
 	_eraseColours.clear()
 	_frameColours.clear()
 	_sliders.clear()
+	_listViews.clear()
 	_sliderHot.clear()
 	_boxRects.clear()
 	_checkLists.clear()
@@ -1773,3 +2230,10 @@ def detachAll():
 			_detach(hwnd, i)
 		if _IsWindow(hwnd):
 			_RedrawWindow(hwnd, None, None, RDW_FRAME | RDW_INVALIDATE | RDW_ERASE)
+	# Only now (nothing of ours intercepts the message any more): put Windows' own focus
+	# cues back on the controls where we hid them.
+	for hwnd in list(_trueUI):
+		state = _trueUI.pop(hwnd, None)
+		if state is not None and _IsWindow(hwnd):
+			action = UIS_SET if state & UISF_HIDEFOCUS else UIS_CLEAR
+			_SendMessageW(hwnd, WM_UPDATEUISTATE, (UISF_HIDEFOCUS << 16) | action, 0)
