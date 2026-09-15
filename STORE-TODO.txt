@@ -25,7 +25,7 @@ own account does both:
    Note: the repository must stay public for as long as the add-on is listed.
 
 
-3. DECIDE THE PUBLIC DETAILS
+3. DECIDE THE PUBLIC DETAILS  -- DONE (Dark Mode / Carrie on Accessibility / apps.carrieonaccessibility.com / 0.9.2 beta; contact = your GitHub account)
 ----------------------------
 These appear in the store for everyone, so they are your call:
    - Display name: "Dark Mode" (current). Keep or change?
@@ -75,7 +75,7 @@ Users should know these up front (Claude can word them):
      the one to watch).
 
 
-6. SUBMIT TO THE STORE
+6. SUBMIT TO THE STORE  -- READY: see STORE-SUBMISSION.txt for the three steps and every field
 ----------------------
 Submission is a GitHub issue on NV Access's "addon-datastore" repository, using
 their "Add-on submission" form. You fill in: the download link (the release
