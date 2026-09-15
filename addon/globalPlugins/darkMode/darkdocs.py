@@ -28,11 +28,12 @@ except ImportError:
 	addonHandler = None
 
 _isActive = lambda: False  # replaced by the plugin: True while dark mode is on
+_bgGetter = lambda: None  # replaced by the plugin: the dialog background (a wx.Colour); black is a setting
 _originals = {}
 
 DARK_CSS = """/* Added by the Dark Mode add-on. The original page is untouched; this is a copy. */
 :root { color-scheme: dark; }
-body { background: #202020; color: #f5f5f5; }
+body { background: %(bg)s; color: #f5f5f5; }
 h1 { color: #ffffff; background-color: #472f5f; }
 h2, h3, h4, h5, h6 { color: #d3b5f2; }
 a { color: #8fd0ff; }
@@ -43,8 +44,8 @@ hr { border-color: #8c8c8c; }
 /* Tables: the Commands Quick Reference is nothing but tables. */
 table, td, th { border: 1px solid #a0a0a0; }
 th { color: #ffffff; background-color: #472f5f; }
-td { background-color: #262626; }
-tr:nth-child(even) td { background-color: #2b2b2b; }
+td { background-color: %(td)s; }
+tr:nth-child(even) td { background-color: %(tdEven)s; }
 /* Code */
 /* File names, settings, command lines: white on NVDA's dark purple. */
 code, pre { background: #472f5f; border-bottom: 1px solid #6b4a8a; color: #ffffff; border-radius: 3px; }
@@ -56,9 +57,27 @@ kbd code { background: none; border: none; padding: 0; }
 blockquote { border-left: 3px solid #8c8c8c; color: #d1d5db; }
 /* NVDA's stylesheet sets no colour on these; the browser default would be dark on dark. */
 dl > dt, dl > dd { color: #f5f5f5; }
-img { max-width: 100%; }
+img { max-width: 100%%; }
 """
 CSS_NAME = "darkMode-docs.css"
+
+
+def _pageBackground():
+	"""The help page's background: the dialog background, so black follows the setting."""
+	try:
+		c = _bgGetter()
+		if c is not None:
+			return "#%02x%02x%02x" % (c.Red(), c.Green(), c.Blue())
+	except Exception:
+		pass
+	return "#202020"
+
+
+def darkCss():
+	bg = _pageBackground()
+	black = bg == "#000000"
+	# table cells a step lighter than the page, so a table still reads as a table
+	return DARK_CSS % {"bg": bg, "td": "#141414" if black else "#262626", "tdEven": "#1c1c1c" if black else "#2b2b2b"}
 LINK_TAG = '<link rel="stylesheet" href="%s">' % CSS_NAME
 
 
@@ -74,7 +93,7 @@ def _cacheDirFor(srcDir):
 		newest = 0
 	import hashlib
 
-	key = hashlib.sha1(("%s|%d|%s" % (os.path.normcase(srcDir), int(newest), DARK_CSS)).encode("utf-8")).hexdigest()[:12]
+	key = hashlib.sha1(("%s|%d|%s" % (os.path.normcase(srcDir), int(newest), darkCss())).encode("utf-8")).hexdigest()[:12]
 	return os.path.join(_cacheRoot(), key)
 
 
@@ -199,7 +218,7 @@ def darkCopy(path):
 				with open(p, "w", encoding="utf-8") as f:
 					f.write(_darkenHtml(text))
 		with open(os.path.join(dest, CSS_NAME), "w", encoding="utf-8") as f:
-			f.write(DARK_CSS)
+			f.write(darkCss())
 		with open(marker, "w", encoding="utf-8") as f:
 			f.write(srcDir)
 		_dropStaleCopies(srcDir, dest)
@@ -227,10 +246,12 @@ def _wrap(module, name, transform):
 	setattr(module, name, wrapped)
 
 
-def install(isActive):
+def install(isActive, bgGetter=None):
 	"""Start handing NVDA dark copies of help files while isActive() is True."""
-	global _isActive
+	global _isActive, _bgGetter
 	_isActive = isActive
+	if bgGetter is not None:
+		_bgGetter = bgGetter
 	if documentationUtils is not None:
 		original = getattr(documentationUtils, "getDocFilePath", None)
 		_wrap(documentationUtils, "getDocFilePath", darkCopy)
@@ -253,6 +274,76 @@ def install(isActive):
 			cls = getattr(addonHandler, clsName, None)
 			if cls is not None and "getDocFilePath" in cls.__dict__:
 				_wrap(cls, "getDocFilePath", darkCopy)
+
+
+# --- Browseable messages -----------------------------------------------------------
+# NVDA menu > Help > License (and other "browseable" messages) are HTML shown by an
+# MSHTML dialog from NVDA's own message.html, which is white. The message text is
+# handed to the page unstyled; while dark mode is on, a style block goes along with it.
+MESSAGE_CSS = (
+	"<style>html,body{background:%(bg)s !important;color:#f5f5f5 !important;"
+	# MSHTML honours these old scrollbar colour properties
+	"scrollbar-base-color:#2b2b2b;scrollbar-face-color:#5a5a5a;scrollbar-track-color:#202020;scrollbar-arrow-color:#c8c8c8;"
+	"scrollbar-shadow-color:#2b2b2b;scrollbar-highlight-color:#2b2b2b;scrollbar-3dlight-color:#202020;scrollbar-darkshadow-color:#202020}"
+	"a{color:#8fd0ff}a:visited{color:#c9a2ea}"
+	"button{background:#333333;color:#ffffff;border:1px solid #c8c8c8;padding:2px 12px}"
+	"h1,h2,h3{color:#d3b5f2}</style>"
+)
+
+
+def _bgHex(bgGetter):
+	try:
+		c = bgGetter()
+		return "#%02x%02x%02x" % (c.Red(), c.Green(), c.Blue())
+	except Exception:
+		return "#202020"
+
+
+def _darkBrowseableMessage(original, isActive, bgGetter, windowHook):
+	import functools
+	import html as _html
+
+	defaults = original.__defaults__ or ()
+	names = original.__code__.co_varnames[: original.__code__.co_argcount]
+	defaultSanitizer = dict(zip(names[len(names) - len(defaults):], defaults)).get("sanitizeHtmlFunc")
+
+	@functools.wraps(original)
+	def wrapped(message, title=None, isHtml=False, closeButton=False, copyButton=False, sanitizeHtmlFunc=None, *args, **kwargs):
+		if not isActive():
+			extra = {} if sanitizeHtmlFunc is None else {"sanitizeHtmlFunc": sanitizeHtmlFunc}
+			return original(message, title, isHtml, closeButton, copyButton, *args, **extra, **kwargs)
+		css = MESSAGE_CSS % {"bg": _bgHex(bgGetter)}
+		if not isHtml:
+			# what NVDA itself does with plain text, then our style after it
+			message = "<pre>%s</pre>" % _html.escape(str(message))
+			sanitize = lambda h: h + css
+		else:
+			inner = sanitizeHtmlFunc or defaultSanitizer or (lambda h: h)
+			sanitize = lambda h: inner(h) + css  # the caller's HTML is still cleaned; the style is ours
+		result = original(message, title, True, closeButton, copyButton, sanitize, *args, **kwargs)
+		if windowHook:
+			# The window is created on another thread a moment later: look for it a few times.
+			import wx
+
+			for delay in (50, 200, 600, 1500):
+				wx.CallLater(delay, windowHook)
+		return result
+
+	return wrapped
+
+
+def installMessages(isActive, bgGetter, windowHook=None):
+	"""Dark styling for NVDA's browseable message windows while isActive() is True; windowHook
+	(called a few times after each message is shown) darkens the window frame."""
+	try:
+		import ui
+	except ImportError:
+		return
+	original = getattr(ui, "browseableMessage", None)
+	if original is None or (ui, "browseableMessage") in _originals:
+		return
+	_originals[(ui, "browseableMessage")] = original
+	ui.browseableMessage = _darkBrowseableMessage(original, isActive, bgGetter, windowHook)
 
 
 def uninstall():

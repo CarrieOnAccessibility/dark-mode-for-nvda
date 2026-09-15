@@ -361,6 +361,32 @@ class DevHook:
 					desc += " len=%d" % len(r)
 				print("     referrer:", desc[:200])
 
+	def v_license(self, name="license"):
+		"""Open Help > License (NVDA's browseable message window), capture it after 2 s, report its colours, close it."""
+		import documentationUtils
+
+		from PIL import Image
+		from collections import Counter
+
+		def grab():
+			h = _user32.FindWindowW("Internet Explorer_TridentDlgFrame", None)
+			if not h:
+				log.info("devhook license: no MSHTML dialog window found")
+				return
+			img = _printWindow(h)
+			if img is not None:
+				img.save(_shotPath(name))
+				w, hh = img.size
+				body = img.crop((w // 4, hh // 3, w * 3 // 4, hh * 2 // 3)).convert("RGB")
+				title = img.crop((10, 2, w // 2, 24)).convert("RGB")
+				log.info("devhook license: size=%s body colours=%s title-bar colours=%s" % (
+					img.size, Counter(body.getdata()).most_common(3), Counter(title.getdata()).most_common(2)))
+			_user32.PostMessageW(h, 0x0010, 0, 0)  # WM_CLOSE
+
+		self._later = wx.CallLater(2500, grab)
+		wx.CallAfter(documentationUtils.displayLicense)
+		print("opening the license window; see the log for colours")
+
 	def v_toggle(self):
 		"""What the NVDA menu's Dark mode item and the toggle command do (turning off restarts NVDA if that setting is on)."""
 		import globalPlugins.darkMode as pkg
@@ -912,7 +938,7 @@ class DevHook:
 			# On a black background (a setting) near-black pixels are just anti-aliasing of the
 			# background itself; dark text on black would be exactly the background and cannot be
 			# told apart by pixels. The grey-background sweep is the one that catches dark text.
-			nearBlack = 0 if max(bg) <= 12 else sum(n for col, n in cnt.items() if max(col) <= 12 and col != bg)
+			nearBlack = 0 if max(bg) <= 12 else sum(n for col, n in cnt.items() if max(col) <= 12 and col not in (bg, theming_bg()))
 			light = sum(n for col, n in cnt.items() if min(col) >= 200)
 			total = len(px)
 			checked += 1

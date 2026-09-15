@@ -72,7 +72,7 @@ def setMode(mode: str):
 	if plugin:
 		plugin.engine.refresh()
 	if mode == "off" and wasActive and config.conf[CONF_SECTION]["restartWhenOff"]:
-		wx.CallAfter(restartNVDA)
+		wx.CallLater(1500, restartNVDA)  # after the spoken "Dark mode off" has been heard
 
 
 def saveConfig():
@@ -102,7 +102,7 @@ def toggle():
 	turningOn = not plugin.engine.active
 	setMode("dark" if turningOn else "off")
 	# Translators: spoken when NVDA's dark mode is switched on / off.
-	ui.message(_("NVDA dark mode on") if turningOn else _("NVDA dark mode off"))
+	ui.message(_("Dark mode on") if turningOn else _("Dark mode off"))
 
 
 class DarkModeSettingsPanel(SettingsPanel):
@@ -122,7 +122,7 @@ class DarkModeSettingsPanel(SettingsPanel):
 		self.blackCheckBox.SetValue(bool(config.conf[CONF_SECTION]["blackBackgrounds"]))
 		self.restartCheckBox = sHelper.addItem(
 			# Translators: label of the check box that makes NVDA restart when dark mode is turned off.
-			wx.CheckBox(self, label=_("&Restart NVDA when dark mode is turned off"))
+			wx.CheckBox(self, label=_("&Restart NVDA when dark mode is turned off (recommended)"))
 		)
 		self.restartCheckBox.SetValue(bool(config.conf[CONF_SECTION]["restartWhenOff"]))
 		self.thickCheckBox = sHelper.addItem(
@@ -134,8 +134,8 @@ class DarkModeSettingsPanel(SettingsPanel):
 			self,
 			# Translators: explanatory text shown in the Dark Mode settings category.
 			label=_(
-				"Also in the NVDA menu under Preferences, and as a command in Input Gestures. "
-				"Off automatically while Windows High Contrast is on."
+				"You can toggle dark mode in the NVDA menu under Preferences, or add a keyboard shortcut "
+				"in Input Gestures. Dark mode turns off automatically while Windows High Contrast is on."
 			),
 		)
 		note.Wrap(self.scaleSize(500))
@@ -175,7 +175,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		except Exception:
 			log.exception("darkMode: engine failed to start")
 		try:
-			darkdocs.install(lambda: self.engine.active)
+			darkdocs.install(lambda: self.engine.active, lambda: theming.BG)
+			darkdocs.installMessages(lambda: self.engine.active, lambda: theming.BG, theming.darkenMessageWindows)
 		except Exception:
 			log.exception("darkMode: could not hook the help files")
 		self._syncMenuItem()

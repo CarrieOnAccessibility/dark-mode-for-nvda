@@ -53,6 +53,7 @@ FG = wx.Colour(0xFF, 0xFF, 0xFF)
 
 # --- Win32 plumbing ---------------------------------------------------------
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
+_kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 _uxtheme = ctypes.WinDLL("uxtheme", use_last_error=True)
 _dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
 
@@ -338,6 +339,46 @@ def _framedHwnds(win, hwnd):
 	return out
 
 
+MESSAGE_WINDOW_CLASS = "Internet Explorer_TridentDlgFrame"  # NVDA's browseable-message dialog (MSHTML)
+_darkMessageWindows = set()
+
+
+def darkenMessageWindows():
+	"""Dark title bar on NVDA's browseable-message windows (Help > License and the like). MSHTML
+	creates them on its own thread, so neither wx nor our window hook sees them; they are found
+	by class after the message has been shown. Returns how many were newly darkened."""
+	found = []
+	EnumProc = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+
+	@EnumProc
+	def cb(h, _):
+		if _className(h) == MESSAGE_WINDOW_CLASS:
+			pid = wintypes.DWORD()
+			_user32.GetWindowThreadProcessId(h, ctypes.byref(pid))
+			if pid.value == _kernel32.GetCurrentProcessId():
+				found.append(h)
+		return True
+
+	_user32.EnumWindows(cb, 0)
+	for h in list(_darkMessageWindows):
+		if not _IsWindow(h):
+			_darkMessageWindows.discard(h)
+	new = [h for h in found if h not in _darkMessageWindows]
+	for h in new:
+		_setTitleBarDark(h, True)
+		_darkMessageWindows.add(h)
+	return len(new)
+
+
+def _inPythonConsole(win) -> bool:
+	"""Whether a control belongs to NVDA's Python console window."""
+	try:
+		top = win.GetTopLevelParent()
+		return type(top).__name__ == "ConsoleUI" and type(top).__module__ == "pythonConsole"
+	except Exception:
+		return False
+
+
 def _applyDark(win, hwnd):
 	# Theme first: changing the theme makes list views forget their text colour.
 	_setWindowTheme(hwnd, _nativeThemeFor(win, hwnd))
@@ -370,8 +411,11 @@ def _applyDark(win, hwnd):
 		parent = win.GetParent()
 		if parent:
 			native.registerSlider(hwnd, parent.GetHandle(), True)
+	console = _inPythonConsole(win)
+	if console and isinstance(win, wx.TextCtrl):
+		win.SetOwnBackgroundColour(BG)  # the console's output and input follow the dialog background
 	if isinstance(win, wx.TextCtrl) and native.isRichEdit(hwnd):
-		native.applyRich(hwnd, True)
+		native.applyRich(hwnd, True, (BG.Red(), BG.Green(), BG.Blue()) if console else None)
 	# Frames around layout (panels) are structure, not fields: draw them softer.
 	layout = isinstance(win, (wx.Panel, wx.ScrolledWindow)) and not isinstance(win, _FIELD_TYPES)
 	for h in _framedHwnds(win, hwnd):

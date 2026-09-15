@@ -1603,6 +1603,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 			_frameColours.pop(hwnd, None)
 			_sliders.discard(hwnd)
 			_listViews.discard(hwnd)
+			_richBg.pop(hwnd, None)
 			_sliderHot.pop(hwnd, None)
 			_boxRects.pop(hwnd, None)
 			_framePending.discard(hwnd)
@@ -1667,7 +1668,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 			# colour to "automatic" (black); put ours back after each.
 			if msg in (WM_SETTEXT, EM_SETTEXTEX, EM_REPLACESEL, WM_SETFONT, WM_THEMECHANGED):
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
-				applyRichColours(hwnd, LIST_TEXT, FIELD_BG)
+				applyRichColours(hwnd, LIST_TEXT, _richBg.get(hwnd, FIELD_BG))
 				return res
 		elif idSubclass == ID_HEADER:
 			if msg == WM_PAINT:
@@ -1904,6 +1905,7 @@ _boxRects = {}  # group box hwnd -> last known window rect (screen coords), to c
 _eraseColours = {}  # hwnd -> rgb laid down on WM_ERASEBKGND (ID_ERASE)
 _frameColours = {}  # hwnd -> frame colour when not focused (ID_FRAME); default BORDER
 _trueUI = {}  # hwnd -> the UI state Windows really has for it (focus cues shown or hidden); see _uiStateMessage
+_richBg = {}  # rich edit hwnd -> background when it is not the field colour (the Python console)
 MENU_OUTLINE = True  # outline the highlighted popup menu item
 MENU_ITEM_MARGIN = 3  # DIP between a popup menu item's rect and Windows' highlight (measured: 7 px at 225%)
 _subclassProc = _SUBCLASSPROC(_proc)  # must stay alive for as long as any window is subclassed
@@ -1977,11 +1979,17 @@ def isRichEdit(hwnd) -> bool:
 	return buf.value.upper().startswith("RICHEDIT")
 
 
-def applyRich(hwnd, dark: bool):
+def applyRich(hwnd, dark: bool, bg=None):
+	"""Dark colours on a rich edit; bg overrides the field colour (the Python console follows the dialog background)."""
 	if dark:
+		if bg is None:
+			_richBg.pop(hwnd, None)
+		else:
+			_richBg[hwnd] = bg
 		_attach(hwnd, ID_RICH)
-		applyRichColours(hwnd, LIST_TEXT, FIELD_BG)
+		applyRichColours(hwnd, LIST_TEXT, _richBg.get(hwnd, FIELD_BG))
 	else:
+		_richBg.pop(hwnd, None)
 		_detach(hwnd, ID_RICH)
 		sysText = _GetSysColor(8)  # COLOR_WINDOWTEXT
 		sysBg = _GetSysColor(5)  # COLOR_WINDOW
