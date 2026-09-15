@@ -27,11 +27,15 @@ from PIL import Image  # noqa: E402  (NVDA's bundled PIL)
 #   python dev/flashcap.py NAME --wait S   films S seconds; the user opens the menu with NVDA+N
 #   python dev/flashcap.py NAME --verb "settings general" --full   films the whole screen while the
 #                                                                    hook opens something else
+#   python dev/flashcap.py NAME --verb "dialog addons" --window "Add-on Store"
+#       films ONLY the window whose title contains the text, from the moment it exists (nothing
+#       of the screen around it is captured; frames before it appears are skipped)
 name = sys.argv[1] if len(sys.argv) > 1 else "flash"
 wait = float(sys.argv[sys.argv.index("--wait") + 1]) if "--wait" in sys.argv else 0
 verb = sys.argv[sys.argv.index("--verb") + 1] if "--verb" in sys.argv else "menupop"
 full = "--full" in sys.argv
 seconds = float(sys.argv[sys.argv.index("--seconds") + 1]) if "--seconds" in sys.argv else 2.2
+window = sys.argv[sys.argv.index("--window") + 1] if "--window" in sys.argv else None
 user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
 gdi32.CreateCompatibleDC.restype = ctypes.c_void_p
@@ -53,8 +57,32 @@ if full:
 else:
 	L, T = max(0, cx - 300), max(0, cy - 300)
 	R, B = min(sw, cx + 1100), min(sh, cy + 1300)
+if window:
+	L, T, R, B = 0, 0, sw, sh  # film size; only the window's own rect is ever copied
 W, H = R - L, B - T
-REDUCE = 8 if full else 4
+REDUCE = 8 if (full or window) else 4
+
+user32.GetWindowRect.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.RECT))
+user32.EnumWindows.argtypes = (ctypes.WINFUNCTYPE(ctypes.c_int, wintypes.HWND, wintypes.LPARAM), wintypes.LPARAM)
+
+
+def findWindow(titlePart):
+	"""The first visible top-level window whose title contains the text, else None."""
+	found = []
+	EnumProc = ctypes.WINFUNCTYPE(ctypes.c_int, wintypes.HWND, wintypes.LPARAM)
+
+	@EnumProc
+	def cb(h, _):
+		if user32.IsWindowVisible(h):
+			buf = ctypes.create_unicode_buffer(256)
+			user32.GetWindowTextW(h, buf, 256)
+			if titlePart.lower() in buf.value.lower():
+				found.append(h)
+				return False
+		return True
+
+	user32.EnumWindows(cb, 0)
+	return found[0] if found else None
 
 
 class BITMAPINFOHEADER(ctypes.Structure):
@@ -78,8 +106,22 @@ def capture(seconds, frames):
 	size = W * H * 4
 	t0 = time.perf_counter()
 	lastLight = None
+	global L, T, R, B
 	while time.perf_counter() - t0 < seconds:
-		gdi32.BitBlt(mem, 0, 0, W, H, screen, L, T, 0x00CC0020)  # SRCCOPY
+		if window:
+			h = findWindow(window)
+			if not h:
+				time.sleep(0.005)
+				continue
+			rc = wintypes.RECT()
+			user32.GetWindowRect(h, ctypes.byref(rc))
+			# the window's own rect only, clipped to the film size
+			L, T = max(0, rc.left), max(0, rc.top)
+			w, hgt = min(W, rc.right - L), min(H, rc.bottom - T)
+			gdi32.BitBlt(mem, 0, 0, W, H, None, 0, 0, 0x00000042)  # BLACKNESS: clear outside the window
+			gdi32.BitBlt(mem, 0, 0, w, hgt, screen, L, T, 0x00CC0020)
+		else:
+			gdi32.BitBlt(mem, 0, 0, W, H, screen, L, T, 0x00CC0020)  # SRCCOPY
 		t = time.perf_counter() - t0
 		img = Image.frombuffer("RGB", (W, H), ctypes.string_at(bits, size), "raw", "BGRX", 0, 1)
 		# brightness on a 4x-reduced copy: fast, still catches a light rectangle
@@ -106,6 +148,9 @@ th.join()
 out = os.path.join(HERE, "shots")
 os.makedirs(out, exist_ok=True)
 stats = frames
+if not stats:
+	print("no frames: the window never appeared")
+	sys.exit(1)
 base = stats[0][1]
 peak = max(range(len(stats)), key=lambda i: stats[i][1])
 print("frames=%d (%.0f fps) region=%r baselineLight=%d" % (len(stats), len(stats) / stats[-1][0], (L, T, R, B), base))

@@ -340,7 +340,86 @@ def _framedHwnds(win, hwnd):
 
 
 MESSAGE_WINDOW_CLASS = "Internet Explorer_TridentDlgFrame"  # NVDA's browseable-message dialog (MSHTML)
+MESSAGE_CONTENT_CLASS = "Internet Explorer_Server"
 _darkMessageWindows = set()
+
+# A WinEvent hook for our own process: MSHTML creates the message dialog on a thread of its
+# own, where neither wx nor the CBT hook can see it, but window-creation events for every
+# thread of the process arrive here, on the main thread, within a few milliseconds.
+EVENT_OBJECT_CREATE = 0x8000
+EVENT_OBJECT_SHOW = 0x8002
+WINEVENT_OUTOFCONTEXT = 0x0000
+_WINEVENTPROC = ctypes.WINFUNCTYPE(None, ctypes.c_void_p, wintypes.DWORD, wintypes.HWND, ctypes.c_long, ctypes.c_long, wintypes.DWORD, wintypes.DWORD)
+_SetWinEventHook = _user32.SetWinEventHook
+_SetWinEventHook.argtypes = (wintypes.DWORD, wintypes.DWORD, wintypes.HMODULE, _WINEVENTPROC, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD)
+_SetWinEventHook.restype = ctypes.c_void_p
+_UnhookWinEvent = _user32.UnhookWinEvent
+_UnhookWinEvent.argtypes = (ctypes.c_void_p,)
+_winEventHook = None
+_user32.GetAncestor.argtypes = (wintypes.HWND, wintypes.UINT)
+_user32.GetAncestor.restype = wintypes.HWND
+
+
+def _darkenMessageWindowNow(hwnd):
+	"""Dark title bar plus a dark fill of the window's surface (its own pixels only), so the
+	first frame is not white while the page loads."""
+	_setTitleBarDark(hwnd, True)
+	_darkMessageWindows.add(hwnd)
+	targets = [hwnd]
+
+	@_EnumChildProc
+	def cb(h, _):
+		targets.append(h)
+		return True
+
+	_EnumChildWindows(hwnd, cb, 0)
+	brush = native._CreateSolidBrush(native.colorref((BG.Red(), BG.Green(), BG.Blue())))
+	try:
+		for h in targets:
+			hdc = native._GetDC(h)
+			if hdc:
+				try:
+					rc = native.RECT()
+					native._GetClientRect(h, ctypes.byref(rc))
+					native._FillRect(hdc, ctypes.byref(rc), brush)
+				finally:
+					native._ReleaseDC(h, hdc)
+	finally:
+		native._DeleteObject(brush)
+
+
+def _onWinEvent(hook, event, hwnd, idObject, idChild, thread, time):
+	try:
+		if idObject != 0 or idChild != 0 or not hwnd:
+			return
+		if _className(hwnd) == MESSAGE_WINDOW_CLASS:
+			log.debug("darkMode: message window %#x event %#x" % (hwnd, event))
+			_darkenMessageWindowNow(hwnd)
+		elif event == EVENT_OBJECT_SHOW and _className(hwnd) == MESSAGE_CONTENT_CLASS:
+			top = _user32.GetAncestor(hwnd, 2)  # GA_ROOT
+			if top and _className(top) == MESSAGE_WINDOW_CLASS:
+				_darkenMessageWindowNow(top)
+	except Exception:
+		log.exception("darkMode: window event hook failed")
+
+
+_winEventProc = _WINEVENTPROC(_onWinEvent)  # must outlive the hook
+
+
+def installMessageWindowWatch():
+	global _winEventHook
+	if _winEventHook:
+		return
+	_winEventHook = _SetWinEventHook(EVENT_OBJECT_CREATE, EVENT_OBJECT_SHOW, None, _winEventProc, _kernel32.GetCurrentProcessId(), 0, WINEVENT_OUTOFCONTEXT)
+	if not _winEventHook:
+		log.warning("darkMode: could not install the window event hook (error %d)" % ctypes.get_last_error())
+
+
+def removeMessageWindowWatch():
+	global _winEventHook
+	if _winEventHook:
+		_UnhookWinEvent(_winEventHook)
+		_winEventHook = None
 
 
 def darkenMessageWindows():
@@ -370,6 +449,10 @@ def darkenMessageWindows():
 	return len(new)
 
 
+ES_MULTILINE = 0x0004
+ES_READONLY = 0x0800
+
+
 def _inPythonConsole(win) -> bool:
 	"""Whether a control belongs to NVDA's Python console window."""
 	try:
@@ -377,6 +460,18 @@ def _inPythonConsole(win) -> bool:
 		return type(top).__name__ == "ConsoleUI" and type(top).__module__ == "pythonConsole"
 	except Exception:
 		return False
+
+
+def _followsDialogBackground(win, hwnd) -> bool:
+	"""With black backgrounds on, text areas that show rather than take text (the speech
+	viewer, the Add-on Store's description and details, the Python console's output and its
+	input) go black with the dialog instead of keeping the field grey."""
+	if BG != BG_BLACK or not isinstance(win, wx.TextCtrl):
+		return False
+	if _inPythonConsole(win):
+		return True
+	style = native._GetWindowLongW(hwnd, native.GWL_STYLE)
+	return bool(style & ES_MULTILINE) and bool(style & ES_READONLY)
 
 
 def _applyDark(win, hwnd):
@@ -411,11 +506,11 @@ def _applyDark(win, hwnd):
 		parent = win.GetParent()
 		if parent:
 			native.registerSlider(hwnd, parent.GetHandle(), True)
-	console = _inPythonConsole(win)
-	if console and isinstance(win, wx.TextCtrl):
-		win.SetOwnBackgroundColour(BG)  # the console's output and input follow the dialog background
+	followsBg = _followsDialogBackground(win, hwnd)
+	if followsBg:
+		win.SetOwnBackgroundColour(BG)
 	if isinstance(win, wx.TextCtrl) and native.isRichEdit(hwnd):
-		native.applyRich(hwnd, True, (BG.Red(), BG.Green(), BG.Blue()) if console else None)
+		native.applyRich(hwnd, True, (BG.Red(), BG.Green(), BG.Blue()) if followsBg else None)
 	# Frames around layout (panels) are structure, not fields: draw them softer.
 	layout = isinstance(win, (wx.Panel, wx.ScrolledWindow)) and not isinstance(win, _FIELD_TYPES)
 	for h in _framedHwnds(win, hwnd):
@@ -674,7 +769,9 @@ class DarkModeEngine:
 		themeAllWindows(dark)
 		if dark:
 			native.installMenuHook()
+			installMessageWindowWatch()
 		else:
+			removeMessageWindowWatch()
 			native.detachAll()
 		if self.onStateChanged:
 			try:

@@ -2,7 +2,11 @@
 
 Dark mode for NVDA's own user interface, including windows, dialogs, and menus. An NVDA add-on by [Carrie on Accessibility](https://apps.carrieonaccessibility.com).
 
-NVDA has no dark mode of its own yet (NVDA issue #16683 is the one to watch). Until it does, this add-on asks Windows for the same dark treatment that File Explorer gets, and repaints the few pieces Windows will not. It changes only how NVDA's windows are painted, never what the controls are, so nothing NVDA announces changes.
+NVDA has no dark mode of its own yet. Until it does, this add-on asks Windows for the same dark treatment that File Explorer gets, and repaints the few pieces Windows will not. It changes only how NVDA's windows are painted, never what the controls are, so nothing NVDA announces changes.
+
+**Hopefully a stopgap.** The hope is that NV Access builds a native dark mode into NVDA (issue #16683 is the one to watch), at which point this add-on can retire.
+
+**Known limits.** Because it is a workaround, some windows may show a brief flash of white before turning dark (Windows paints a new window light first and the add-on catches up a moment later; the common dialogs and menus are covered, rarely used windows may still flash). The "Checking for update" progress box is drawn by Windows and stays light. Popup menus keep Windows' own hover colours.
 
 - NVDA's help pages (User Guide, Commands Quick Reference, What's New, add-on help) open as dark copies, with every keyboard shortcut outlined in purple and file names highlighted in dark purple; the originals are never touched.
 - A solid blue focus ring on every control (check boxes, dropdowns, sliders and list rows included), a blue outline on the highlighted menu item, and a medium-blue selected row in lists; a "Thicker focus outlines" setting makes the rings two pixels.

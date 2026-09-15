@@ -224,6 +224,7 @@ class DevHook:
 			"welcome": "onWelcomeCommand",
 			"update": "onCheckForUpdateCommand",
 			"console": "onPythonConsoleCommand",
+			"speechviewer": "onToggleSpeechViewerCommand",
 		}
 		name = actions.get(which)
 		if not name:
@@ -407,6 +408,13 @@ class DevHook:
 		pkg.applyRingWidth()
 		pkg.applyBackground()
 		print(name, "->", config.conf[pkg.CONF_SECTION][name], "| BG", theming_bg())
+
+	def v_showtrace(self, state="on"):
+		"""Log the show-time paint of top-level windows (WINDOWPOSCHANGED flags, how long the synchronous paint took)."""
+		from . import native
+
+		native.TRACE_SHOW = state != "off"
+		print("show trace", "on" if native.TRACE_SHOW else "off")
 
 	def v_menuoutline(self, state="on"):
 		"""Switch the blue outline on highlighted popup menu items off or on (to measure Windows' own)."""

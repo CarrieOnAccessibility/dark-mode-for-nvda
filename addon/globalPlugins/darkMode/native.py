@@ -1828,13 +1828,34 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 					finally:
 						_ReleaseDC(hwnd, hdc)
 				return res
+			if msg == WM_WINDOWPOSCHANGED and TRACE_SHOW:
+				wp = WINDOWPOS.from_address(lParam)
+				log.info("darkMode showtrace: %#x WINDOWPOSCHANGED flags=%#x size=%dx%d" % (hwnd, wp.flags, wp.cx, wp.cy))
 			if msg == WM_WINDOWPOSCHANGED and WINDOWPOS.from_address(lParam).flags & SWP_SHOWWINDOW:
 				# The window just became visible. Windows has erased it (dark, thanks to the
 				# rest of this file) but the real painting would wait for the message loop,
 				# and NVDA spends ~100 ms announcing a new dialog first. Paint the whole tree
 				# now, inside the show call, so the first frame anyone sees is the finished one.
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
-				_RedrawWindow(hwnd, None, None, RDW_UPDATENOW | RDW_ALLCHILDREN)
+				# List views, trees and text controls get no erase of their own before their
+				# first WM_PAINT, so until the paint below reaches them their part of the
+				# window is whatever the surface held: white. A big list (the Add-on Store,
+				# maximised) is painted late in that pass and showed as a white block for a
+				# frame or two. Lay their background colour down directly first.
+				_prefillChildren(hwnd)
+				if TRACE_SHOW:
+					import time as _t
+
+					_snapshotSurface(hwnd)  # what the screen shows during the paint below
+					for lv in _childrenOfClass(hwnd, "SysListView32"):
+						log.info("darkMode showtrace: list %#x bk=%#x textbk=%#x erasebase=%r themed=%s" % (
+							lv, _SendMessageW(lv, 0x1000, 0, 0) & 0xFFFFFFFF, _SendMessageW(lv, 0x1000 + 37, 0, 0) & 0xFFFFFFFF,
+							_eraseColours.get(lv), _subclassed.get(lv)))
+					t1 = _t.perf_counter()
+					_RedrawWindow(hwnd, None, None, RDW_UPDATENOW | RDW_ALLCHILDREN)
+					log.info("darkMode showtrace: %#x show-paint took %.1f ms" % (hwnd, (_t.perf_counter() - t1) * 1000))
+				else:
+					_RedrawWindow(hwnd, None, None, RDW_UPDATENOW | RDW_ALLCHILDREN)
 				# wx lays many dialogs out only AFTER showing them (every control still sits at
 				# the top-left corner at this point), and Windows moves controls by copying
 				# their pixels, not repainting. So once the show call has returned and layout
@@ -1907,6 +1928,101 @@ _frameColours = {}  # hwnd -> frame colour when not focused (ID_FRAME); default 
 _trueUI = {}  # hwnd -> the UI state Windows really has for it (focus cues shown or hidden); see _uiStateMessage
 _richBg = {}  # rich edit hwnd -> background when it is not the field colour (the Python console)
 MENU_OUTLINE = True  # outline the highlighted popup menu item
+TRACE_SHOW = False  # dev: log what happens when a top-level window is shown
+
+
+PREFILL_CLASSES = {
+	"SysListView32": "list", "SysTreeView32": "list", "ListBox": "list",
+	"Edit": "field", "RICHEDIT50W": "field", "RichEdit20W": "field", "RichEdit20A": "field", "ComboBox": "field",
+}
+
+
+def _prefillChildren(top):
+	"""Fill the client area of every visible list/tree/text child with its background colour,
+	straight onto the window surface, ahead of the first paint (see ID_SHOWPAINT)."""
+	EnumProc = ctypes.WINFUNCTYPE(ctypes.c_int, wintypes.HWND, wintypes.LPARAM)
+	brushes = {
+		"list": _CreateSolidBrush(colorref(LIST_BG)),
+		"field": _CreateSolidBrush(colorref(FIELD_BG)),
+	}
+
+	@EnumProc
+	def cb(h, _):
+		kind = PREFILL_CLASSES.get(_className(h))
+		if kind and _IsWindowVisible(h):
+			hdc = _GetDC(h)
+			if hdc:
+				try:
+					rc = RECT()
+					_GetClientRect(h, ctypes.byref(rc))
+					_FillRect(hdc, ctypes.byref(rc), brushes[kind])
+				finally:
+					_ReleaseDC(h, hdc)
+		return True
+
+	try:
+		_user32.EnumChildWindows(top, cb, 0)
+	finally:
+		for b in brushes.values():
+			_DeleteObject(b)
+
+
+def _childrenOfClass(hwnd, cls):
+	found = []
+	EnumProc = ctypes.WINFUNCTYPE(ctypes.c_int, wintypes.HWND, wintypes.LPARAM)
+
+	@EnumProc
+	def cb(h, _):
+		if _className(h) == cls:
+			found.append(h)
+		return True
+
+	_user32.EnumChildWindows(hwnd, cb, 0)
+	return found
+
+
+def _snapshotSurface(hwnd):
+	"""Dev: copy the window's current surface (its own pixels, no repaint triggered, nothing of
+	the screen around it) to %TEMP%/darkMode-dev/showtrace-<hwnd>.png."""
+	try:
+		import os
+		import tempfile
+
+		from PIL import Image
+
+		rc = RECT()
+		_GetClientRect(hwnd, ctypes.byref(rc))
+		w, h = rc.right, rc.bottom
+		if w <= 0 or h <= 0:
+			return
+		src = _GetDC(hwnd)
+		mem = _gdi32.CreateCompatibleDC(src)
+		_gdi32.CreateCompatibleBitmap.restype = HANDLE
+		_gdi32.CreateCompatibleBitmap.argtypes = (HANDLE, ctypes.c_int, ctypes.c_int)
+		bmp = _gdi32.CreateCompatibleBitmap(src, w, h)
+		old = _SelectObject(mem, bmp)
+		_gdi32.BitBlt.argtypes = (HANDLE, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, HANDLE, ctypes.c_int, ctypes.c_int, wintypes.DWORD)
+		_gdi32.BitBlt(mem, 0, 0, w, h, src, 0, 0, 0x00CC0020)
+
+		class BIH(ctypes.Structure):
+			_fields_ = [("biSize", wintypes.DWORD), ("biWidth", ctypes.c_long), ("biHeight", ctypes.c_long),
+				("biPlanes", wintypes.WORD), ("biBitCount", wintypes.WORD), ("biCompression", wintypes.DWORD),
+				("biSizeImage", wintypes.DWORD), ("biXPelsPerMeter", ctypes.c_long), ("biYPelsPerMeter", ctypes.c_long),
+				("biClrUsed", wintypes.DWORD), ("biClrImportant", wintypes.DWORD)]
+
+		bi = BIH(ctypes.sizeof(BIH), w, -h, 1, 32, 0, 0, 0, 0, 0, 0)
+		buf = ctypes.create_string_buffer(w * h * 4)
+		_gdi32.GetDIBits.argtypes = (HANDLE, HANDLE, wintypes.UINT, wintypes.UINT, ctypes.c_void_p, ctypes.c_void_p, wintypes.UINT)
+		_gdi32.GetDIBits(mem, bmp, 0, h, buf, ctypes.byref(bi), 0)
+		_SelectObject(mem, old)
+		_DeleteObject(bmp)
+		_gdi32.DeleteDC(mem)
+		_ReleaseDC(hwnd, src)
+		d = os.path.join(tempfile.gettempdir(), "darkMode-dev")
+		os.makedirs(d, exist_ok=True)
+		Image.frombuffer("RGB", (w, h), buf, "raw", "BGRX", 0, 1).save(os.path.join(d, "showtrace-%x.png" % hwnd))
+	except Exception:
+		log.exception("darkMode: surface snapshot failed")
 MENU_ITEM_MARGIN = 3  # DIP between a popup menu item's rect and Windows' highlight (measured: 7 px at 225%)
 _subclassProc = _SUBCLASSPROC(_proc)  # must stay alive for as long as any window is subclassed
 

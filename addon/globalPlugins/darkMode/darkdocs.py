@@ -332,6 +332,67 @@ def _darkBrowseableMessage(original, isActive, bgGetter, windowHook):
 	return wrapped
 
 
+def _darkMessageTemplate():
+	"""A dark copy of NVDA's message.html (the page behind browseable messages): the original
+	starts white and only turns dark once the message's style runs, which shows as a flash.
+	The copy carries the colours in its head, plus the line under the title bar."""
+	try:
+		import globalVars
+
+		src = os.path.join(globalVars.appDir, "message.html")
+	except Exception:
+		return None
+	if not os.path.isfile(src):
+		return None
+	bg = _pageBackground()
+	import hashlib
+
+	try:
+		stamp = int(os.path.getmtime(src))
+	except OSError:
+		stamp = 0
+	key = hashlib.sha1(("%s|%d|%s" % (os.path.normcase(src), stamp, bg)).encode("utf-8")).hexdigest()[:12]
+	dest = os.path.join(_cacheRoot(), "message-" + key, "message.html")
+	if not os.path.isfile(dest):
+		with open(src, "r", encoding="utf-8", errors="replace") as f:
+			text = f.read()
+		style = (
+			"<style>html,body{background:%s;color:#f5f5f5}"
+			"a{color:#8fd0ff}a:visited{color:#c9a2ea}"
+			"button{background:#333333;color:#ffffff;border:1px solid #c8c8c8;padding:2px 12px}"
+			"html{scrollbar-base-color:#2b2b2b;scrollbar-face-color:#5a5a5a;scrollbar-track-color:%s;scrollbar-arrow-color:#c8c8c8;"
+			"scrollbar-shadow-color:#2b2b2b;scrollbar-highlight-color:#2b2b2b;scrollbar-3dlight-color:%s;scrollbar-darkshadow-color:%s}"
+			"</style>\n" % (bg, bg, bg, bg)
+		)
+		i = text.lower().find("<head>")
+		text = text[: i + 6] + "\n" + style + text[i + 6 :] if i >= 0 else style + text
+		# the line under the title bar, as on our dialogs (a border on body is not honoured here)
+		m = re.search(r"<body[^>]*>", text, re.I)
+		if m:
+			line = '<div style="position:absolute;left:0;top:0;width:100%;height:1px;background:#707070"></div>'
+			text = text[: m.end()] + line + text[m.end() :]
+		os.makedirs(os.path.dirname(dest), exist_ok=True)
+		with open(dest, "w", encoding="utf-8") as f:
+			f.write(text)
+	return dest
+
+
+def _darkMonikerFactory(original):
+	"""winBindings.urlmon.CreateURLMonikerEx, with message.html swapped for the dark copy."""
+
+	def wrapped(context, url, *args, **kwargs):
+		try:
+			if _isActive() and isinstance(url, str) and url.lower().endswith("message.html"):
+				dark = _darkMessageTemplate()
+				if dark:
+					url = dark
+		except Exception:
+			log.exception("darkMode: could not prepare the dark message page; using NVDA's")
+		return original(context, url, *args, **kwargs)
+
+	return wrapped
+
+
 def installMessages(isActive, bgGetter, windowHook=None):
 	"""Dark styling for NVDA's browseable message windows while isActive() is True; windowHook
 	(called a few times after each message is shown) darkens the window frame."""
@@ -340,10 +401,18 @@ def installMessages(isActive, bgGetter, windowHook=None):
 	except ImportError:
 		return
 	original = getattr(ui, "browseableMessage", None)
-	if original is None or (ui, "browseableMessage") in _originals:
-		return
-	_originals[(ui, "browseableMessage")] = original
-	ui.browseableMessage = _darkBrowseableMessage(original, isActive, bgGetter, windowHook)
+	if original is not None and (ui, "browseableMessage") not in _originals:
+		_originals[(ui, "browseableMessage")] = original
+		ui.browseableMessage = _darkBrowseableMessage(original, isActive, bgGetter, windowHook)
+	# The page itself: NVDA loads message.html through a URL moniker; hand it the dark copy.
+	try:
+		from winBindings import urlmon
+	except ImportError:
+		urlmon = None
+	factory = getattr(urlmon, "CreateURLMonikerEx", None) if urlmon else None
+	if factory is not None and (urlmon, "CreateURLMonikerEx") not in _originals:
+		_originals[(urlmon, "CreateURLMonikerEx")] = factory
+		urlmon.CreateURLMonikerEx = _darkMonikerFactory(factory)
 
 
 def uninstall():
