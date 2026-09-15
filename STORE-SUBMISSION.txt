@@ -1,99 +1,109 @@
-DARK MODE 0.9.2 - SUBMITTING TO THE NVDA ADD-ON STORE
+DARK MODE FOR NVDA - WHAT'S LEFT FOR THE ADD-ON STORE
 ======================================================
-(Written 15 September 2026. Everything Claude could prepare is done; the three
-steps below need your GitHub account, so they are yours.)
-
-The file being submitted is FROZEN from now on:
-   D:\00 Carrie on Accessibility\Coding\dark-mode-for-nvda\dist\darkMode-0.9.2.nvda-addon
-   size 37,399 bytes
-   SHA-256 e62c2224d20de236f59c53ea89e3859d1c806ee0d4e3948b05e98ba1c598cc89
-   (the same bytes are live at https://apps.carrieonaccessibility.com/apps/dark-mode/darkMode-0.9.2.nvda-addon)
-The store checks the file against its fingerprint, so this exact file must never
-change. Any change from here on becomes 0.9.3.
-
-Already checked against NV Access's rules: the add-on ID "darkMode" is unique
-among the 534 add-ons in the store; version 0.9.2 is in the right form;
-minimum NVDA 2026.1.0 and last tested 2026.2.0 are both released (not
-experimental) NVDA versions, so the beta channel is allowed; every URL in the
-manifest is https; the licence is GPL v2. There is no checksum or email field
-on the form - the store computes the checksum itself, and your GitHub account is
-how NV Access reaches you.
+(Updated 15 September 2026. Version 0.9.3 beta is live on apps.carrieonaccessibility.com and
+on GitHub. Store submission is on hold until your members have tried it. This file lives on
+your Desktop; the same steps are in the repo as STORE-SUBMISSION.txt.)
 
 
-STEP 1 - PUBLISH THE RELEASE ON GITHUB (about two minutes)
-----------------------------------------------------------
-The tag v0.9.2 is already on GitHub. Turning it into a release gives the store a
-permanent download address that lives next to the source code.
+ALREADY DONE (nothing for you to do here)
+-----------------------------------------
+- Licence: GPL v2, LICENSE file and headers in place.
+- Public source: https://github.com/CarrieOnAccessibility/dark-mode-for-nvda
+- Name, author, homepage, description: Dark Mode / Carrie on Accessibility /
+  https://apps.carrieonaccessibility.com - all inside the add-on file.
+- Checked against NV Access's rules: the add-on ID "darkMode" is unique in the store,
+  the version format is right, both NVDA versions (minimum 2026.1, last tested 2026.2)
+  are released versions, every link is https.
+- Your contact: your GitHub account (the form has no email field).
 
-   1. Open https://github.com/CarrieOnAccessibility/dark-mode-for-nvda/releases/new?tag=v0.9.2
-      (sign in as CarrieOnAccessibility if asked).
-   2. Release title:  Dark Mode 0.9.2 (beta)
+
+STEP 1 - MEMBERS TRY IT  (you, now)
+-----------------------------------
+Share the page: https://apps.carrieonaccessibility.com/apps/dark-mode/
+The Install button and the "How to Install" section on that page are all they need.
+Ask them to tell you two things:
+   - anything that still shows light or flashes white, and where;
+   - anything NVDA SAYS differently from before (a check box that no longer says
+     "checked", a list item read wrongly). That kind is a bug that must be fixed before
+     the store, no exceptions.
+Send whatever comes back to Claude. Fixes become 0.9.4, 0.9.5... and go straight to the
+site each time. Nothing else needs to happen while this runs.
+
+
+STEP 2 - SAY "FREEZE IT"  (you, one message to Claude)
+------------------------------------------------------
+When the members are happy, tell Claude to freeze the version you want to submit.
+Claude then: tags that exact version on GitHub, rebuilds the file, checks it against the
+site, and fills in the exact links and fingerprint below. From that moment that file
+never changes; anything later is a new version number.
+
+   Current candidate, in case nothing changes: 0.9.3
+   File:        D:\00 Carrie on Accessibility\Coding\dark-mode-for-nvda\dist\darkMode-0.9.3.nvda-addon
+   Size:        43,908 bytes
+   SHA-256:     cdc7e700a37e5cc0c731c3cd756a11e5e566ba6883e1cbb0b46055ac505ba315
+   Same file:   https://apps.carrieonaccessibility.com/apps/dark-mode/darkMode-0.9.3.nvda-addon
+   (If a fix ships first, these four lines change - ask Claude for the fresh ones.)
+
+
+STEP 3 - PUBLISH THE RELEASE ON GITHUB  (you, about two minutes, in the browser)
+-------------------------------------------------------------------------------
+This gives the store a permanent download address next to the source code.
+   1. Open https://github.com/CarrieOnAccessibility/dark-mode-for-nvda/releases/new?tag=vX.Y.Z
+      (Claude gives you the exact link with the version filled in; sign in as
+      CarrieOnAccessibility if asked).
+   2. Release title:  Dark Mode X.Y.Z (beta)
    3. Description (paste):
-      First public beta. Dark mode for NVDA's own windows, dialogs, menus and
-      help pages. Needs NVDA 2026.1 or later; black title bars and the grey
-      window outline need Windows 11. See the change log on
+      First public beta. Dark mode for NVDA's own windows, dialogs, menus and help pages,
+      with optional black backgrounds and thicker focus outlines. Needs NVDA 2026.1 or
+      later; black title bars and the grey window outline need Windows 11. Change log:
       https://apps.carrieonaccessibility.com/apps/dark-mode/
-   4. Attach the file: drag darkMode-0.9.2.nvda-addon from the dist folder
-      (path above) into the "Attach binaries" box, and wait for the upload to
-      finish.
-   5. Tick "Set as a pre-release" (it is a beta). Leave "Set as the latest
-      release" unticked. Press "Publish release".
+   4. Drag the .nvda-addon file (path in step 2) into the "Attach binaries" box and wait
+      for the upload to finish.
+   5. Tick "Set as a pre-release" (it is a beta). Leave "Set as the latest release"
+      unticked. Press "Publish release".
+   The file's address will then be:
+   https://github.com/CarrieOnAccessibility/dark-mode-for-nvda/releases/download/vX.Y.Z/darkMode-X.Y.Z.nvda-addon
 
-   The file's address will then be exactly:
-   https://github.com/CarrieOnAccessibility/dark-mode-for-nvda/releases/download/v0.9.2/darkMode-0.9.2.nvda-addon
-
-   If you would rather skip this step, the website address above works for the
-   form too - it is the same file. GitHub is the tidier home for it.
+   Shortcut: if you would rather skip this step, the website address from step 2 works
+   for the form too - it is the same file. GitHub is just the tidier home for it.
 
 
-STEP 2 - FILL IN THE STORE FORM
--------------------------------
+STEP 4 - FILL IN THE STORE FORM  (you, about five minutes, in the browser)
+-------------------------------------------------------------------------
 Open: https://github.com/nvaccess/addon-datastore/issues/new?template=registerAddon.yml
 
-Field by field (copy and paste):
-
-   Title:        leave the "[Submit add-on]: " part and add   Dark Mode 0.9.2
-   Download URL: https://github.com/CarrieOnAccessibility/dark-mode-for-nvda/releases/download/v0.9.2/darkMode-0.9.2.nvda-addon
-                 (or https://apps.carrieonaccessibility.com/apps/dark-mode/darkMode-0.9.2.nvda-addon if you skipped step 1)
+   Title:        keep the "[Submit add-on]: " part and add   Dark Mode X.Y.Z
+   Download URL: the GitHub release address from step 3
+                 (or the website address from step 2)
    Source URL:   https://github.com/CarrieOnAccessibility/dark-mode-for-nvda
    Publisher:    Carrie on Accessibility
    Channel:      beta
    License Name: GPL v2                                     (already filled in)
    License URL:  https://www.gnu.org/licenses/gpl-2.0.html  (already filled in)
 
-Press "Submit new issue". That is the whole form. Everything else the store
-shows - the name, summary, description, versions - it reads from the add-on
-file itself.
+Press "Submit new issue". That is the whole form. Everything else the store shows - the
+name, summary, description, versions - it reads from the add-on file itself.
 
 
-STEP 3 - WAIT, AND WATCH THE ISSUE
-----------------------------------
-   - Within minutes, a robot downloads the file, checks it, scans it with
-     VirusTotal, and opens a pull request. If a check fails, it writes a comment
-     on your issue saying what; send that to Claude and resubmit after the fix.
-   - Because this is the first submission of a new add-on, a person at NV Access
-     has to approve you as its publisher. That can take up to two weeks. There is
-     nothing to do while you wait; you are the maintainer, so no extra proof is
-     needed.
-   - When approved and the checks pass, the pull request merges itself and Dark
-     Mode appears in the Add-on Store's beta channel. (Users see beta add-ons
-     only if they have chosen to show them in the store's settings.)
-   - Every later version is the same form again, with the new download address.
-     Updates from an approved publisher do not need the two-week wait.
+STEP 5 - WAIT, AND WATCH THE ISSUE  (nothing to do, just know what happens)
+--------------------------------------------------------------------------
+   - Within minutes a robot downloads the file, checks it and scans it with VirusTotal,
+     then opens a pull request. If a check fails it comments on your issue saying what;
+     send that comment to Claude, and resubmit after the fix.
+   - First submission of a new add-on: a person at NV Access approves you as its
+     publisher. Up to two weeks. Nothing to do while you wait; you are the maintainer,
+     so no extra proof is needed.
+   - Once approved and green, the pull request merges itself and Dark Mode appears in
+     the Add-on Store's beta channel. (People see beta add-ons only if they have chosen
+     to show them in the store's settings.)
+   - Every later version is the same form again with the new address, and updates from
+     an approved publisher do not need the two-week wait.
 
 
-WHAT THE STORE WILL SHOW (from the add-on file)
------------------------------------------------
-   Name:        Dark Mode
-   Author:      Carrie on Accessibility
-   Version:     0.9.2, beta channel
-   Homepage:    https://apps.carrieonaccessibility.com
-   Description: Dark mode for NVDA's own user interface, including windows,
-                dialogs, and menus. Turn it off from the NVDA menu
-                (Preferences > Dark mode), the Dark Mode settings category, or
-                a command you assign; it steps aside automatically while a
-                Windows High Contrast theme is active.
-   Help:        the add-on's readme (dark help pages, focus and selection,
-                turning it on and off, limits, licence)
-   If you want the store description to say more (help pages, focus rings), say
-   so and it goes into 0.9.3 - the text lives inside the frozen file.
+OPTIONAL, ANY TIME
+------------------
+   - If you want the store's own description text to say more (help pages, focus rings,
+     black backgrounds), tell Claude before the freeze - that text lives inside the file.
+   - Announcement post / screenshots for your channels (Claude can draft it in your voice).
+   - An issue on github.com/nvaccess/nvda asking that the "Checking for update" box use
+     NVDA's own dialog, so dark mode can reach it (Claude can draft it).
