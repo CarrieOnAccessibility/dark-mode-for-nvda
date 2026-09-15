@@ -48,7 +48,10 @@ tr:nth-child(even) td { background-color: #2b2b2b; }
 /* Code */
 code, pre { background: #343434; border-bottom: 1px solid #606060; color: #f5f5f5; }
 pre { border-left: 2px solid #8fd0ff; }
-kbd { background: #333333; color: #ffffff; border: 1px solid #8c8c8c; border-radius: 3px; padding: 0 4px; }
+/* Keyboard shortcuts: NVDA writes them as <code> in prose and as plain text in the key columns of
+   its tables; the copy marks both as <kbd>. A lighter tint of NVDA purple, visible on dark cells. */
+kbd { background: #2e2838; color: #ffffff; border: 1px solid #a785d6; border-radius: 4px; padding: 1px 6px; white-space: nowrap; font-family: inherit; font-size: 0.95em; }
+kbd code { background: none; border: none; padding: 0; }
 blockquote { border-left: 3px solid #8c8c8c; color: #d1d5db; }
 /* NVDA's stylesheet sets no colour on these; the browser default would be dark on dark. */
 dl > dt, dl > dd { color: #f5f5f5; }
@@ -94,9 +97,77 @@ def _dropStaleCopies(srcDir, keep):
 			shutil.rmtree(d, ignore_errors=True)
 
 
+# Column headings whose cells hold a key or gesture, in NVDA's tables.
+KEY_COLUMNS = {"key", "keys", "keystroke", "shortcut", "desktop key", "laptop key", "touch", "brltty command", "gesture"}
+NOT_A_KEY = {"", "none", "n/a", "-", "–", "—"}
+# One key name as NVDA writes them (the identifiers from Input Gestures), case-insensitive.
+_KEY_TOKEN = re.compile(
+	r"^(?:nvda|control|ctrl|shift|alt|windows|win|applications|enter|return|tab|escape|esc|space|spacebar|backspace"
+	r"|delete|del|insert|ins|home|end|pageup|pagedown|uparrow|downarrow|leftarrow|rightarrow|capslock|numlock"
+	r"|scrolllock|printscreen|pause|break|plus|minus|equals|f\d{1,2}|numpad\w*|dot[1-8]|dots?|routing|doublerouting"
+	r"|joystick\d\w*|[a-z]{1,2}\d{1,2}|volume\w+|browser\w+|media\w+|launch\w+|.)$",
+	re.I,
+)
+
+
+def _looksLikeKey(text):
+	t = re.sub(r"<[^>]+>", "", text).strip()
+	if not t or len(t) > 60:
+		return False
+	return all(_KEY_TOKEN.match(part.strip()) for part in t.split("+"))
+
+
+def _markKeys(text):
+	"""Wrap keyboard shortcuts in <kbd>: every cell of a key column, and <code> in prose whose text is a key combo."""
+
+	def fixTable(m):
+		table = m.group(0)
+		heads = [re.sub(r"<[^>]+>", "", h).strip().lower() for h in re.findall(r"<th[^>]*>(.*?)</th>", table, re.S)]
+		cols = {i for i, h in enumerate(heads) if h in KEY_COLUMNS}
+		if not cols:
+			return table
+
+		def fixRow(rm):
+			row = rm.group(0)
+			n = [-1]
+
+			def fixCell(cm):
+				n[0] += 1
+				inner = cm.group(2)
+				if n[0] not in cols or "<kbd" in inner:
+					return cm.group(0)
+				plain = re.sub(r"<[^>]+>", "", inner).strip().lower()
+				if plain in NOT_A_KEY or re.search(r"\betc\b", plain):
+					return cm.group(0)
+				if "<code" in inner:
+					# "<code>NVDA+q</code>, then <code>enter</code>": each key its own kbd, words left alone
+					new = re.sub(r"<code>([^<]*)</code>", r"<kbd>\1</kbd>", inner)
+				else:
+					# plain text: "t1, etouch1" -> one kbd per key
+					# "topRouting20 (last cell on display)": the note in brackets stays outside the key
+					new = ", ".join(
+						re.sub(r"^(.*?)(\s*\(.*\))?$", r"<kbd>\1</kbd>\2", part.strip(), flags=re.S)
+						for part in inner.split(",")
+						if part.strip()
+					)
+				return "<td%s>%s</td>" % (cm.group(1) or "", new)
+
+			return re.sub(r"<td(\s[^>]*)?>(.*?)</td>", fixCell, row, flags=re.S)
+
+		return re.sub(r"<tr[^>]*>.*?</tr>", fixRow, table, flags=re.S)
+
+	text = re.sub(r"<table[^>]*>.*?</table>", fixTable, text, flags=re.S)
+	# prose: <code>NVDA+n</code>, <code>enter</code>; not <code>nvda.ini</code>
+	return re.sub(r"<code>([^<]*)</code>", lambda m: "<kbd>%s</kbd>" % m.group(1) if _looksLikeKey(m.group(1)) else m.group(0), text)
+
+
 def _darkenHtml(text):
 	if CSS_NAME in text:
 		return text
+	try:
+		text = _markKeys(text)
+	except Exception:
+		log.exception("darkMode: could not mark keyboard shortcuts in a help page; leaving them as they are")
 	# after the page's own stylesheets, so ours wins; else before </head>; else at the top
 	m = list(re.finditer(r"<link[^>]+rel=[\"']stylesheet[\"'][^>]*>", text, re.I))
 	if m:
