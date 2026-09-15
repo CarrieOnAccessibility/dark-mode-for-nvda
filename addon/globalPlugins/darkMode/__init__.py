@@ -20,7 +20,7 @@ from scriptHandler import script
 import ui
 import wx
 
-from . import theming
+from . import darkdocs, theming
 
 try:
 	from . import devhook  # development builds only; absent from the packaged add-on
@@ -125,6 +125,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self.engine.start()
 		except Exception:
 			log.exception("darkMode: engine failed to start")
+		try:
+			darkdocs.install(lambda: self.engine.active)
+		except Exception:
+			log.exception("darkMode: could not hook the help files")
 		self._syncMenuItem()
 		self._devhook = devhook.DevHook(self) if devhook else None
 
@@ -170,6 +174,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		except ValueError:
 			pass
 		self._removeMenuItem()
+		try:
+			darkdocs.uninstall()
+		except Exception:
+			log.exception("darkMode: could not unhook the help files")
 		try:
 			import core
 

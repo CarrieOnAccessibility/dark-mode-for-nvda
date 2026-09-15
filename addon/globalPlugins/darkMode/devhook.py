@@ -890,6 +890,55 @@ class DevHook:
 		measure("leave: ")
 		print("thumb rect", (rc.left, rc.top, rc.right, rc.bottom))
 
+	def v_docinfo(self):
+		"""How NVDA opens its help files: documentationUtils members and the doc folder."""
+		import documentationUtils
+		import globalVars
+		import inspect
+
+		print("documentationUtils:", [n for n in dir(documentationUtils) if not n.startswith("_")])
+		for name in ("getDocFilePath", "displayLicense", "reportDocsOpeningFailed"):
+			fn = getattr(documentationUtils, name, None)
+			if fn:
+				try:
+					print(name, inspect.signature(fn))
+				except Exception:
+					print(name, "(no signature)")
+		print("appDir:", globalVars.appDir)
+		try:
+			print("userGuide:", documentationUtils.getDocFilePath("userGuide.html"))
+		except Exception as e:
+			print("getDocFilePath failed:", e)
+		import gui
+
+		for n in ("onUserGuideCommand", "onHelpCommand", "onWhatsNewCommand", "onLicenseCommand", "onContributorsCommand"):
+			print(n, hasattr(gui.mainFrame, n))
+		import addonHandler
+
+		print("addon getDocFilePath:", hasattr(addonHandler.AddonBase, "getDocFilePath"))
+
+	def v_doctest(self, name="userGuide.html"):
+		"""Where NVDA would open a help file now, and whether that copy carries the dark stylesheet."""
+		import documentationUtils
+
+		path = documentationUtils.getDocFilePath(name)
+		print("path:", path)
+		if path and os.path.isfile(path):
+			text = open(path, encoding="utf-8", errors="replace").read()
+			print("dark css linked:", "darkMode-docs.css" in text, "| css file present:", os.path.isfile(os.path.join(os.path.dirname(path), "darkMode-docs.css")))
+			print("siblings:", sorted(os.listdir(os.path.dirname(path))))
+		import sys
+
+		holders = [n for n, m in sys.modules.items() if getattr(m, "getDocFilePath", None) is not None and n != "documentationUtils"]
+		print("modules holding getDocFilePath:", holders)
+		# the Add-on Store's "Add-on help" goes through Addon.getDocFilePath
+		import addonHandler
+
+		for addon in addonHandler.getAvailableAddons():
+			p = addon.getDocFilePath()
+			if p:
+				print("addon %s help: %s | dark: %s" % (addon.name, p, os.path.isfile(p) and "darkMode-docs.css" in open(p, encoding="utf-8", errors="replace").read()))
+
 	def v_welcome(self):
 		"""Open NVDA's Welcome dialog the way Help > Welcome does."""
 		from gui.startupDialogs import WelcomeDialog

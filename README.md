@@ -4,6 +4,7 @@ Dark mode for NVDA's own user interface, including windows, dialogs, and menus. 
 
 NVDA has no dark mode of its own yet (NVDA issue #16683 is the one to watch). Until it does, this add-on asks Windows for the same dark treatment that File Explorer gets, and repaints the few pieces Windows will not. It changes only how NVDA's windows are painted, never what the controls are, so nothing NVDA announces changes.
 
+- NVDA's help pages (User Guide, Commands Quick Reference, What's New, add-on help) open as dark copies; the originals are never touched.
 - Turn it off and on from the NVDA menu (Preferences > Dark mode), the Dark Mode settings category, or a command you assign under Input Gestures.
 - Steps aside automatically while a Windows High Contrast theme is active.
 - Needs NVDA 2026.1 or later; black title bars and the grey window outline need Windows 11.
@@ -20,7 +21,7 @@ Copyright (C) 2026 Carrie on Accessibility. Free software under the GNU General 
 
 ## Layout
 
-- `addon/` - the add-on itself (what gets zipped). `manifest.ini` + `globalPlugins/darkMode/`.
+- `addon/` - the add-on itself (what gets zipped). `manifest.ini` + `globalPlugins/darkMode/`. `darkdocs.py` wraps NVDA's `getDocFilePath` so help files open from a dark copy under `%TEMP%\darkMode-docs\` (one folder per source folder + stylesheet; older copies are dropped).
   - `theming.py` - the engine: Windows dark-mode switches + wx recolouring. Read its header comment before changing anything; it explains the one accessibility rule that must never be broken (never set text colour on checkboxes/radio buttons/buttons).
   - `__init__.py` - NVDA plumbing: settings category, toggle command, config.
 - `build.py` - `python build.py` writes `dist/darkMode-<version>.nvda-addon`. `python build.py --install` also copies the add-on into `%APPDATA%\nvda\addons\` for testing (restart NVDA after).
