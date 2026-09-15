@@ -53,6 +53,12 @@ def _hwndRect(hwnd):
 	return r.l, r.t, r.r, r.b
 
 
+def theming_bg():
+	from . import theming
+
+	return (theming.BG.Red(), theming.BG.Green(), theming.BG.Blue())
+
+
 def _shotPath(name):
 	name = re.sub(r"[^A-Za-z0-9_.-]", "_", name)
 	if not name.endswith(".png"):
@@ -354,6 +360,20 @@ class DevHook:
 				elif isinstance(r, (list, tuple, set)):
 					desc += " len=%d" % len(r)
 				print("     referrer:", desc[:200])
+
+	def v_setting(self, name, value="on"):
+		"""Flip one of the add-on's visual settings live: thickOutlines or blackBackgrounds, on|off."""
+		import config
+
+		import globalPlugins.darkMode as pkg
+
+		if name not in ("thickOutlines", "blackBackgrounds"):
+			print("unknown setting", name)
+			return
+		config.conf[pkg.CONF_SECTION][name] = value == "on"
+		pkg.applyRingWidth()
+		pkg.applyBackground()
+		print(name, "->", config.conf[pkg.CONF_SECTION][name], "| BG", theming_bg())
 
 	def v_menuoutline(self, state="on"):
 		"""Switch the blue outline on highlighted popup menu items off or on (to measure Windows' own)."""
@@ -882,7 +902,10 @@ class DevHook:
 			px = list(img.get_flattened_data() if hasattr(img, "get_flattened_data") else img.getdata())
 			cnt = Counter(px)
 			bg = cnt.most_common(1)[0][0]
-			nearBlack = sum(n for col, n in cnt.items() if max(col) <= 12)
+			# On a black background (a setting) near-black pixels are just anti-aliasing of the
+			# background itself; dark text on black would be exactly the background and cannot be
+			# told apart by pixels. The grey-background sweep is the one that catches dark text.
+			nearBlack = 0 if max(bg) <= 12 else sum(n for col, n in cnt.items() if max(col) <= 12 and col != bg)
 			light = sum(n for col, n in cnt.items() if min(col) >= 200)
 			total = len(px)
 			checked += 1

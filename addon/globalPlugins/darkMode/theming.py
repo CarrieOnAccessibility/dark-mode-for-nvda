@@ -42,8 +42,13 @@ except ImportError:  # running outside NVDA (test bench)
 
 # --- Palette ----------------------------------------------------------------
 # Windows 11 dark: app background #202020, raised surfaces #2b2b2b, text white.
-BG = wx.Colour(0x20, 0x20, 0x20)
-FIELD_BG = wx.Colour(0x2B, 0x2B, 0x2B)
+BG_GREY = wx.Colour(0x20, 0x20, 0x20)  # the usual dialog background
+BG_BLACK = wx.Colour(0x00, 0x00, 0x00)  # the "black backgrounds" setting
+BG = BG_GREY
+FIELD_BG = wx.Colour(0x2B, 0x2B, 0x2B)  # text fields, dropdowns, spin boxes
+LIST_BG_GREY = wx.Colour(0x2B, 0x2B, 0x2B)  # lists and trees
+LIST_BG_BLACK = wx.Colour(0x00, 0x00, 0x00)  # ...with the "black backgrounds" setting
+LIST_BG = LIST_BG_GREY
 FG = wx.Colour(0xFF, 0xFF, 0xFF)
 
 # --- Win32 plumbing ---------------------------------------------------------
@@ -282,6 +287,9 @@ _FIELD_TYPES = (
 	wx.SpinCtrlDouble,
 )
 
+# Lists and trees: their own background colour (black with the "black backgrounds" setting).
+_LIST_TYPES = (wx.ListCtrl, wx.ListBox, wx.TreeCtrl)
+
 # Controls whose dotted focus rectangle is replaced by our solid ring (see native.applyFocusRing).
 _FOCUS_RING_TYPES = (wx.CheckBox, wx.Choice, wx.ComboBox, wx.ListCtrl, wx.TreeCtrl)
 
@@ -335,20 +343,20 @@ def _applyDark(win, hwnd):
 	_setWindowTheme(hwnd, _nativeThemeFor(win, hwnd))
 	if not isinstance(win, _NO_COLOUR_TYPES):
 		field = isinstance(win, _FIELD_TYPES)
-		win.SetOwnBackgroundColour(FIELD_BG if field else BG)
+		win.SetOwnBackgroundColour(LIST_BG if isinstance(win, _LIST_TYPES) else FIELD_BG if field else BG)
 		win.SetOwnForegroundColour(FG)
 	# wx skips re-sending colours it believes are already set, so tell the
 	# native list/tree directly (these get reset by theme changes).
 	if isinstance(win, wx.ListCtrl):
 		native.themeTooltip(_SendMessage(hwnd, LVM_GETTOOLTIPS, 0, 0), True)
-		_SendMessage(hwnd, LVM_SETBKCOLOR, 0, _colorref(FIELD_BG))
-		_SendMessage(hwnd, LVM_SETTEXTBKCOLOR, 0, _colorref(FIELD_BG))
+		_SendMessage(hwnd, LVM_SETBKCOLOR, 0, _colorref(LIST_BG))
+		_SendMessage(hwnd, LVM_SETTEXTBKCOLOR, 0, _colorref(LIST_BG))
 		_SendMessage(hwnd, LVM_SETTEXTCOLOR, 0, _colorref(FG))
 		header = _SendMessage(hwnd, LVM_GETHEADER, 0, 0)
 		if header:
 			native.applyHeader(header, True)
 	elif isinstance(win, wx.TreeCtrl):
-		_SendMessage(hwnd, TVM_SETBKCOLOR, 0, _colorref(FIELD_BG))
+		_SendMessage(hwnd, TVM_SETBKCOLOR, 0, _colorref(LIST_BG))
 		_SendMessage(hwnd, TVM_SETTEXTCOLOR, 0, _colorref(FG))
 	if isinstance(win, wx.CheckListBox):
 		parent = win.GetParent()
@@ -374,7 +382,7 @@ def _applyDark(win, hwnd):
 		native.applyTabs(hwnd, True)
 	# These paint their background only at WM_PAINT and showed white until then.
 	if isinstance(win, (wx.ListCtrl, wx.ComboBox, wx.Gauge)):
-		native.applyEraseBase(hwnd, native.LIST_BG, True)
+		native.applyEraseBase(hwnd, native.LIST_BG if isinstance(win, wx.ListCtrl) else native.FIELD_BG, True)
 	if isinstance(win, (wx.StaticBox, wx.RadioBox)):
 		native.applyStaticBox(hwnd, True)
 	if isinstance(win, wx.StaticLine):
@@ -519,6 +527,22 @@ def themeTree(top: wx.Window, dark: bool = True, force: bool = False):
 def themeAllWindows(dark: bool = True, force: bool = False):
 	for tlw in list(wx.GetTopLevelWindows()):
 		themeTree(tlw, dark, force)
+
+
+def setBlackBackgrounds(black: bool) -> bool:
+	"""Switch the dialog background between dark grey and black (fields, lists, buttons and
+	menus keep their own colours). Returns True if it changed; the caller re-themes."""
+	global BG, LIST_BG
+	want = BG_BLACK if black else BG_GREY
+	if BG == want:
+		return False
+	BG = want
+	LIST_BG = LIST_BG_BLACK if black else LIST_BG_GREY
+	rgb = (want.Red(), want.Green(), want.Blue())
+	native.PARENT_BG = rgb  # what our painters clear to behind buttons, radios, sliders, boxes, the grip
+	native.MENUBAR_BG = rgb  # the strip behind a window's menu bar
+	native.LIST_BG = (LIST_BG.Red(), LIST_BG.Green(), LIST_BG.Blue())  # check-list rows, list erase base
+	return True
 
 
 def repaintAllWindows():

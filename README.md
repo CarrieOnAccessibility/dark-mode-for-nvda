@@ -6,6 +6,7 @@ NVDA has no dark mode of its own yet (NVDA issue #16683 is the one to watch). Un
 
 - NVDA's help pages (User Guide, Commands Quick Reference, What's New, add-on help) open as dark copies, with every keyboard shortcut outlined in purple and file names highlighted in dark purple; the originals are never touched.
 - A solid blue focus ring on every control (check boxes, dropdowns, sliders and list rows included), a blue outline on the highlighted menu item, and a medium-blue selected row in lists; a "Thicker focus outlines" setting makes the rings two pixels.
+- A "Black backgrounds" setting: dialogs, panels and lists black instead of dark grey; fields, buttons and menus unchanged.
 - Turn it off and on from the NVDA menu (Preferences > Dark mode), the Dark Mode settings category, or a command you assign under Input Gestures.
 - Steps aside automatically while a Windows High Contrast theme is active.
 - Needs NVDA 2026.1 or later; black title bars and the grey window outline need Windows 11.

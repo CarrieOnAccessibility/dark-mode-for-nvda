@@ -596,7 +596,8 @@ BTN_HOT_BORDER = (0xE8, 0xE8, 0xE8)
 BTN_DISABLED_BORDER = (0x80, 0x80, 0x80)
 BTN_TEXT = (0xFF, 0xFF, 0xFF)
 BTN_DISABLED_TEXT = (0x9C, 0x9C, 0x9C)  # readable, a step down from enabled
-LIST_BG = (0x2B, 0x2B, 0x2B)
+LIST_BG = (0x2B, 0x2B, 0x2B)  # lists and trees (black with the "black backgrounds" setting)
+FIELD_BG = (0x2B, 0x2B, 0x2B)  # text fields and dropdowns: stays
 LIST_TEXT = (0xFF, 0xFF, 0xFF)
 LIST_DISABLED_TEXT = (0x8A, 0x8A, 0x8A)
 LIST_SEL_UNFOCUSED_BG = (0x50, 0x50, 0x50)  # selected row while the list does not have focus
@@ -1666,7 +1667,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 			# colour to "automatic" (black); put ours back after each.
 			if msg in (WM_SETTEXT, EM_SETTEXTEX, EM_REPLACESEL, WM_SETFONT, WM_THEMECHANGED):
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
-				applyRichColours(hwnd, LIST_TEXT, LIST_BG)
+				applyRichColours(hwnd, LIST_TEXT, FIELD_BG)
 				return res
 		elif idSubclass == ID_HEADER:
 			if msg == WM_PAINT:
@@ -1979,7 +1980,7 @@ def isRichEdit(hwnd) -> bool:
 def applyRich(hwnd, dark: bool):
 	if dark:
 		_attach(hwnd, ID_RICH)
-		applyRichColours(hwnd, LIST_TEXT, LIST_BG)
+		applyRichColours(hwnd, LIST_TEXT, FIELD_BG)
 	else:
 		_detach(hwnd, ID_RICH)
 		sysText = _GetSysColor(8)  # COLOR_WINDOWTEXT

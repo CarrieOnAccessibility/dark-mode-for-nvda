@@ -37,12 +37,22 @@ config.conf.spec[CONF_SECTION] = {
 	"mode": "option('dark', 'off', default='dark')",
 	"restartWhenOff": "boolean(default=True)",
 	"thickOutlines": "boolean(default=False)",
+	"blackBackgrounds": "boolean(default=False)",
 }
 
 
 def wantDark() -> bool:
 	"""The user's preference, before the engine applies its High Contrast override."""
 	return config.conf[CONF_SECTION]["mode"] != "off"
+
+
+def applyBackground(retheme: bool = True):
+	"""Dialog backgrounds dark grey or black, per the setting; re-themes open windows if it changed."""
+	changed = theming.setBlackBackgrounds(bool(config.conf[CONF_SECTION]["blackBackgrounds"]))
+	plugin = GlobalPlugin.instance
+	if changed and retheme and plugin and plugin.engine.active:
+		theming.themeAllWindows(True, force=True)
+		theming.repaintAllWindows()
 
 
 def applyRingWidth(repaint: bool = True):
@@ -90,6 +100,11 @@ class DarkModeSettingsPanel(SettingsPanel):
 		# Translators: label of the check box that turns NVDA's dark mode on or off.
 		self.enabledCheckBox = sHelper.addItem(wx.CheckBox(self, label=_("&Dark mode for NVDA's windows and menus")))
 		self.enabledCheckBox.SetValue(config.conf[CONF_SECTION]["mode"] != "off")
+		self.blackCheckBox = sHelper.addItem(
+			# Translators: label of the check box that makes dialog backgrounds black instead of dark grey.
+			wx.CheckBox(self, label=_("&Black backgrounds"))
+		)
+		self.blackCheckBox.SetValue(bool(config.conf[CONF_SECTION]["blackBackgrounds"]))
 		self.restartCheckBox = sHelper.addItem(
 			# Translators: label of the check box that makes NVDA restart when dark mode is turned off.
 			wx.CheckBox(self, label=_("&Restart NVDA when dark mode is turned off"))
@@ -114,7 +129,9 @@ class DarkModeSettingsPanel(SettingsPanel):
 	def onSave(self):
 		config.conf[CONF_SECTION]["restartWhenOff"] = self.restartCheckBox.IsChecked()
 		config.conf[CONF_SECTION]["thickOutlines"] = self.thickCheckBox.IsChecked()
+		config.conf[CONF_SECTION]["blackBackgrounds"] = self.blackCheckBox.IsChecked()
 		applyRingWidth()
+		applyBackground()
 		setMode("dark" if self.enabledCheckBox.IsChecked() else "off")
 
 
@@ -138,6 +155,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			log.exception("darkMode: could not add the menu item")
 		try:
 			applyRingWidth(repaint=False)
+			applyBackground(retheme=False)
 			self.engine.start()
 		except Exception:
 			log.exception("darkMode: engine failed to start")
@@ -210,6 +228,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def onConfigChanged(self, **kwargs):
 		applyRingWidth()
+		applyBackground()
 		self.engine.refresh()
 
 	@script(
