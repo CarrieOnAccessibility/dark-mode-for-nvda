@@ -4,7 +4,7 @@ Dark mode for NVDA's own user interface, including windows, dialogs, and menus. 
 
 NVDA has no dark mode of its own yet (NVDA issue #16683 is the one to watch). Until it does, this add-on asks Windows for the same dark treatment that File Explorer gets, and repaints the few pieces Windows will not. It changes only how NVDA's windows are painted, never what the controls are, so nothing NVDA announces changes.
 
-- NVDA's help pages (User Guide, Commands Quick Reference, What's New, add-on help) open as dark copies, with every keyboard shortcut outlined in purple; the originals are never touched.
+- NVDA's help pages (User Guide, Commands Quick Reference, What's New, add-on help) open as dark copies, with every keyboard shortcut outlined in purple and file names highlighted in dark purple; the originals are never touched.
 - Turn it off and on from the NVDA menu (Preferences > Dark mode), the Dark Mode settings category, or a command you assign under Input Gestures.
 - Steps aside automatically while a Windows High Contrast theme is active.
 - Needs NVDA 2026.1 or later; black title bars and the grey window outline need Windows 11.

@@ -46,8 +46,9 @@ th { color: #ffffff; background-color: #472f5f; }
 td { background-color: #262626; }
 tr:nth-child(even) td { background-color: #2b2b2b; }
 /* Code */
-code, pre { background: #343434; border-bottom: 1px solid #606060; color: #f5f5f5; }
-pre { border-left: 2px solid #8fd0ff; }
+/* File names, settings, command lines: white on NVDA's dark purple. */
+code, pre { background: #472f5f; border-bottom: 1px solid #6b4a8a; color: #ffffff; border-radius: 3px; }
+pre { border-left: 3px solid #a785d6; }
 /* Keyboard shortcuts: NVDA writes them as <code> in prose and as plain text in the key columns of
    its tables; the copy marks both as <kbd>. A lighter tint of NVDA purple, visible on dark cells. */
 kbd { background: #2e2838; color: #ffffff; border: 1px solid #a785d6; border-radius: 4px; padding: 1px 6px; white-space: nowrap; font-family: inherit; font-size: 0.95em; }
