@@ -322,12 +322,20 @@ def checkDropdown():
 	def grab():
 		lst = user32.FindWindowW("ComboLBox", None)
 		if lst:
-			img = printWindow(lst)
+			img = screenGrab(lst) if args.screen else printWindow(lst)
 			img.save(os.path.join(args.out, "dropdown.png"))
 			rc = RECT()
 			user32.SendMessageW(ctypes.c_void_p(lst), 0x0198, 0, ctypes.byref(rc))
 			l, t, r, b = clientRectInWindow(lst)
-			print("dropdown list: selected row bg=%s, row 1 bg=%s" % (img.getpixel((l + rc.right - 4, t + (rc.top + rc.bottom) // 2)), img.getpixel((l + rc.right - 4, t + rc.bottom + (rc.bottom - rc.top) // 2))))
+			rowH = rc.bottom - rc.top
+			print("dropdown list: selected row bg=%s, row 1 bg=%s" % (img.getpixel((l + rc.right - 4, t + (rc.top + rc.bottom) // 2)), img.getpixel((l + rc.right - 4, t + rc.bottom + rowH // 2))))
+			# hover over row 2: a mouse-move MESSAGE to the list (the cursor does not move)
+			x, y = (rc.left + rc.right) // 2, rc.top + 2 * rowH + rowH // 2
+			user32.SendMessageW(ctypes.c_void_p(lst), 0x0200, 0, (y << 16) | x)
+			user32.UpdateWindow(ctypes.c_void_p(lst))
+			img2 = screenGrab(lst) if args.screen else printWindow(lst)
+			img2.save(os.path.join(args.out, "dropdown-hover.png"))
+			print("dropdown after hover on row 2: row 0 bg=%s, row 2 bg=%s" % (img2.getpixel((l + rc.right - 4, t + (rc.top + rc.bottom) // 2)), img2.getpixel((l + rc.right - 4, t + 2 * rowH + rowH // 2))))
 		else:
 			print("dropdown list window not found")
 		user32.SendMessageW(ctypes.c_void_p(h), 0x014F, 0, 0)

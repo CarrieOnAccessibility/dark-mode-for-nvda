@@ -235,6 +235,25 @@ class DevHook:
 			log.info("devhook menu: popups=%r" % (pops,))
 			try:
 				_grab(pops, name, pad=0)  # the popup windows' own rects only
+				# where the highlighted item sits, relative to the capture (its popup's window rect)
+				from ctypes import wintypes
+
+				from . import native
+
+				for h in pops:
+					hmenu = native._SendMessageW(h, 0x01E1, 0, 0)  # MN_GETHMENU
+					if not hmenu:
+						continue
+					l, t, r, b = _hwndRect(h)
+					for i in range(_user32.GetMenuItemCount(ctypes.c_void_p(hmenu))):
+						mii = native.MENUITEMINFOW()
+						mii.cbSize = ctypes.sizeof(native.MENUITEMINFOW)
+						mii.fMask = 0x00000001  # MIIM_STATE
+						if native._GetMenuItemInfoW(hmenu, i, True, ctypes.byref(mii)) and mii.fState & 0x80:  # MFS_HILITE
+							rc = wintypes.RECT()
+							_user32.GetMenuItemRect(ctypes.c_void_p(h), ctypes.c_void_p(hmenu), i, ctypes.byref(rc))
+							with open(_shotPath(name + ".txt").replace(".png", ""), "w", encoding="utf-8") as f:
+								f.write("popup rect %r item %d rect in capture %r\n" % ((l, t, r, b), i, (rc.left - l, rc.top - t, rc.right - l, rc.bottom - t)))
 			except Exception:
 				log.exception("devhook menu grab failed")
 			_user32.EndMenu()
@@ -304,6 +323,44 @@ class DevHook:
 		left = [img.getpixel((cl + i, midy)) for i in range(3)]
 		print("%s %d (%s) focused: top edge %s left edge %s | GetFocus ok: %s | saved %s" % (
 			typeName, int(index), native._className(h), top, left, _user32.GetFocus() == h, path))
+
+	def v_dlgstate(self):
+		"""NVDA's record of settings dialog instances (CREATED/DESTROYED), and what still refers to any that linger."""
+		import gc
+
+		from gui.settingsDialogs import SettingsDialog
+
+		inst = getattr(SettingsDialog, "_instances", {})
+		try:
+			items = list(inst.items())
+		except Exception:
+			items = []
+		print("instances:", len(items))
+		for dlg, state in items:
+			try:
+				info = "shown=%s beingDeleted=%s" % (dlg.IsShown(), dlg.IsBeingDeleted())
+			except Exception as e:
+				info = "dead wrapper: %s" % e
+			print("  %r state=%r %s" % (dlg, state, info))
+			refs = [r for r in gc.get_referrers(dlg) if r is not items and r is not inst]
+			for r in refs[:8]:
+				desc = type(r).__name__
+				if isinstance(r, dict):
+					keys = [k for k, v in r.items() if v is dlg]
+					desc += " keys=%r" % (keys[:3],)
+					owner = [o for o in gc.get_referrers(r) if hasattr(o, "__dict__") and getattr(o, "__dict__", None) is r]
+					if owner:
+						desc += " of %r" % (owner[0],)
+				elif isinstance(r, (list, tuple, set)):
+					desc += " len=%d" % len(r)
+				print("     referrer:", desc[:200])
+
+	def v_menuoutline(self, state="on"):
+		"""Switch the blue outline on highlighted popup menu items off or on (to measure Windows' own)."""
+		from . import native
+
+		native.MENU_OUTLINE = state != "off"
+		print("menu outline", "on" if native.MENU_OUTLINE else "off")
 
 	def v_menupop(self):
 		"""Pop the NVDA menu at the screen centre (as NVDA+N does) and close it after 900 ms.
@@ -1166,7 +1223,11 @@ class DevHook:
 			return
 		c = combos[int(index) % len(combos)]
 		hwnd = c.GetHandle()
+		dlgHwnd = w.GetHandle()
 		print("opening combo", index, "of", len(combos), "hwnd", hwnd)
+		# The closures below keep handles only: a wx wrapper held past the dialog's close
+		# keeps NVDA's settings-dialog bookkeeping alive and the next open fails.
+		del w, c, combos
 
 		def close():
 			_user32.SendMessageW(hwnd, 0x014F, 0, 0)  # CB_SHOWDROPDOWN off
@@ -1186,12 +1247,33 @@ class DevHook:
 			_user32.EnumWindows(cb, 0)
 			log.info("devhook dropdown: lists=%r" % (lists,))
 			try:
-				_grab([w.GetHandle()] + lists, name)
+				from PIL import ImageGrab
+				from ctypes import wintypes
+
+				for lst in lists[:1]:
+					# hover over row 1 with a mouse-move MESSAGE to the list (the cursor stays put),
+					# then read the list's own window rect from the screen (it is the topmost window)
+					rc = wintypes.RECT()
+					_user32.SendMessageW(lst, 0x0198, 0, ctypes.byref(rc))  # LB_GETITEMRECT row 0
+					rowH = rc.bottom - rc.top
+					x, y = (rc.left + rc.right) // 2, rc.top + rowH + rowH // 2
+					_user32.SendMessageW(lst, 0x0200, 0, (y << 16) | x)  # WM_MOUSEMOVE
+					_user32.UpdateWindow(lst)
+					l, t, r, b = _hwndRect(lst)
+					img = ImageGrab.grab(bbox=(l, t, r, b), all_screens=True).convert("RGB")
+					img.save(_shotPath(name + "-list"))
+					pt = wintypes.POINT(0, 0)
+					_user32.ClientToScreen(lst, ctypes.byref(pt))
+					ox, oy = pt.x - l, pt.y - t
+					log.info("devhook dropdown list after hover on row 1: row 0 bg=%s row 1 bg=%s" % (
+						img.getpixel((ox + rc.right - 6, oy + rowH // 2)), img.getpixel((ox + rc.right - 6, oy + rowH + rowH // 2))))
+				_grab([dlgHwnd] + lists, name)
 			except Exception:
 				log.exception("devhook dropdown grab failed")
 			close()
+			self._later = None
 
-		c.SetFocus()
+		_user32.SetFocus(hwnd)
 		_user32.SendMessageW(hwnd, 0x014F, 1, 0)  # CB_SHOWDROPDOWN on
 		self._later = wx.CallLater(700, grab)
 

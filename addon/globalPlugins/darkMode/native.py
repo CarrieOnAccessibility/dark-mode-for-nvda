@@ -495,6 +495,23 @@ LB_GETTOPINDEX = 0x018E
 LB_GETITEMRECT = 0x0198
 LB_GETCARETINDEX = 0x019F
 LBS_MULTIPLESEL = 0x0008
+LB_SETSEL = 0x0185
+LB_SETCURSEL = 0x0186
+LB_SETTOPINDEX = 0x0197
+LB_SELITEMRANGE = 0x019B
+LB_SETCARETINDEX = 0x019E
+WM_KEYDOWN = 0x0100
+WM_CHAR = 0x0102
+WM_TIMER = 0x0113
+WM_VSCROLL = 0x0115
+WM_MOUSEWHEEL = 0x020A
+WM_LBUTTONDOWN = 0x0201
+WM_LBUTTONUP = 0x0202
+WM_LBUTTONDBLCLK = 0x0203
+LISTBOX_REDRAW_MESSAGES = (
+	WM_MOUSEMOVE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_LBUTTONDBLCLK, WM_KEYDOWN, WM_CHAR, WM_TIMER, WM_VSCROLL, WM_MOUSEWHEEL,
+	LB_SETSEL, LB_SETCURSEL, LB_SETTOPINDEX, LB_SELITEMRANGE, LB_SETCARETINDEX,
+)
 LBS_EXTENDEDSEL = 0x0800
 LVM_GETNEXTITEM = 0x1000 + 12
 LVM_GETITEMRECT = 0x1000 + 14
@@ -1731,7 +1748,9 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 					_InvalidateRect(parent, None, False)
 				return res
 		elif idSubclass == ID_LISTBOX:
-			if msg == WM_PAINT:
+			if msg == WM_PAINT or msg in LISTBOX_REDRAW_MESSAGES:
+				# A list box draws a selection change straight away (mouse over a dropdown's
+				# list, arrow keys, LB_SETCURSEL), without a WM_PAINT: paint over after each.
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 				_overdrawListBox(hwnd)
 				return res
@@ -1843,7 +1862,13 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 				dmi = UAHDRAWMENUITEM.from_address(lParam)
 				if dmi.dis.itemState & (ODS_SELECTED | ODS_HOTLIGHT) and MENU_OUTLINE:
-					_drawRing(dmi.dis.hDC, dmi.dis.rcItem, FOCUS)
+					# Windows' own highlight sits MENU_ITEM_MARGIN (3 DIP) in from the item's
+					# sides; draw on exactly that rectangle, so what Windows repaints when the
+					# highlight moves on covers our outline too (a wider one left its ends behind).
+					dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
+					margin = round(MENU_ITEM_MARGIN * dpi / 96)
+					rc = dmi.dis.rcItem
+					_drawRing(dmi.dis.hDC, RECT(rc.left + margin, rc.top, rc.right - margin, rc.bottom), FOCUS)
 				return res
 			if msg == WM_ERASEBKGND:
 				# Windows erases a new popup menu with the light menu colour and paints the
@@ -1879,6 +1904,7 @@ _eraseColours = {}  # hwnd -> rgb laid down on WM_ERASEBKGND (ID_ERASE)
 _frameColours = {}  # hwnd -> frame colour when not focused (ID_FRAME); default BORDER
 _trueUI = {}  # hwnd -> the UI state Windows really has for it (focus cues shown or hidden); see _uiStateMessage
 MENU_OUTLINE = True  # outline the highlighted popup menu item
+MENU_ITEM_MARGIN = 3  # DIP between a popup menu item's rect and Windows' highlight (measured: 7 px at 225%)
 _subclassProc = _SUBCLASSPROC(_proc)  # must stay alive for as long as any window is subclassed
 
 
