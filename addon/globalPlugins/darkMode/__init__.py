@@ -90,6 +90,21 @@ def restartNVDA():
 	queueHandler.queueFunction(queueHandler.eventQueue, core.restart)
 
 
+def toggle():
+	"""Switch dark mode on or off and say what happened; used by the menu item and the command."""
+	plugin = GlobalPlugin.instance
+	if not plugin:
+		return
+	if theming.highContrastActive():
+		# Translators: spoken when dark mode is toggled during a Windows High Contrast theme.
+		ui.message(_("Dark mode is unavailable while a Windows High Contrast theme is active"))
+		return
+	turningOn = not plugin.engine.active
+	setMode("dark" if turningOn else "off")
+	# Translators: spoken when NVDA's dark mode is switched on / off.
+	ui.message(_("NVDA dark mode on") if turningOn else _("NVDA dark mode off"))
+
+
 class DarkModeSettingsPanel(SettingsPanel):
 	# Translators: title of the Dark Mode category in the NVDA Settings dialog.
 	title = _("Dark Mode")
@@ -102,7 +117,7 @@ class DarkModeSettingsPanel(SettingsPanel):
 		self.enabledCheckBox.SetValue(config.conf[CONF_SECTION]["mode"] != "off")
 		self.blackCheckBox = sHelper.addItem(
 			# Translators: label of the check box that makes dialog backgrounds black instead of dark grey.
-			wx.CheckBox(self, label=_("&Black backgrounds"))
+			wx.CheckBox(self, label=_("Use &black backgrounds"))
 		)
 		self.blackCheckBox.SetValue(bool(config.conf[CONF_SECTION]["blackBackgrounds"]))
 		self.restartCheckBox = sHelper.addItem(

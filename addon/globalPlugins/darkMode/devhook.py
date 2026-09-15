@@ -361,6 +361,13 @@ class DevHook:
 					desc += " len=%d" % len(r)
 				print("     referrer:", desc[:200])
 
+	def v_toggle(self):
+		"""What the NVDA menu's Dark mode item and the toggle command do (turning off restarts NVDA if that setting is on)."""
+		import globalPlugins.darkMode as pkg
+
+		pkg.toggle()
+		print("toggled; active now", self.plugin.engine.active)
+
 	def v_setting(self, name, value="on"):
 		"""Flip one of the add-on's visual settings live: thickOutlines or blackBackgrounds, on|off."""
 		import config
