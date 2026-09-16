@@ -58,15 +58,18 @@ def _background(key, label, bg, listBg=None, textAreasFollow=False):
 	return Background(key, label, bg, _step(bg, 11) if listBg is None else listBg, textAreasFollow)
 
 
-# focus: focus rings, the menu outline, the tab focus line, a slider's thumb at rest;
-#   with Bright contrast also the selected row (then with black text).
+# focus: focus rings, the menu outline, the tab focus line, a slider's thumb at rest, and the
+#   checked glyph of check boxes and radio buttons; with Bright contrast also the selected
+#   row (then with black text).
 # selection: the selected row of a focused list, with white text.
-# hot / pressed: the slider thumb under the mouse, and while dragged.
-Accent = namedtuple("Accent", "key label focus selection hot pressed")
+# hot / pressed: the slider thumb and the checked glyphs under the mouse, and while pressed.
+# windowsGlyphs: leave check boxes and radio buttons to Windows, which draws them in its own
+#   accent colour (true for Blue, which is that colour).
+Accent = namedtuple("Accent", "key label focus selection hot pressed windowsGlyphs")
 
 
-def _accent(key, label, focus, selection, hot=None, pressed=None):
-	return Accent(key, label, focus, selection, hot or _shade(focus, 0.22), pressed or _shade(focus, 0.38))
+def _accent(key, label, focus, selection, hot=None, pressed=None, windowsGlyphs=False):
+	return Accent(key, label, focus, selection, hot or _shade(focus, 0.22), pressed or _shade(focus, 0.38), windowsGlyphs)
 
 
 BACKGROUNDS = (
@@ -96,7 +99,7 @@ ACCENTS = (
 	# Windows 11's dark-mode accent blue for the rings; the selected row sits between the
 	# settings sidebar's dark blue and Windows' bright accent. Hover/pressed as before 0.9.4.
 	# Translators: an accent colour choice in the Dark Mode settings.
-	_accent("blue", _("Blue"), (0x60, 0xCD, 0xFF), (0x1E, 0x5A, 0x8C), (0x00, 0x78, 0xD7), (0x00, 0x5F, 0xB8)),
+	_accent("blue", _("Blue"), (0x60, 0xCD, 0xFF), (0x1E, 0x5A, 0x8C), (0x00, 0x78, 0xD7), (0x00, 0x5F, 0xB8), windowsGlyphs=True),
 	# Translators: an accent colour choice in the Dark Mode settings.
 	_accent("red", _("Red"), (0xFF, 0x8A, 0x80), (0x8C, 0x1E, 0x1E)),
 	# Translators: an accent colour choice in the Dark Mode settings.

@@ -542,6 +542,8 @@ def _applyDark(win, hwnd):
 	# Windows draws these a dotted grey focus rectangle; ours is a solid ring in the accent blue.
 	if isinstance(win, _FOCUS_RING_TYPES):
 		native.applyFocusRing(hwnd, True)
+	if isinstance(win, wx.CheckBox):
+		native.applyCheckBox(hwnd, True)
 	if isinstance(win, wx.ListBox) and not isinstance(win, wx.CheckListBox):
 		native.applyListBox(hwnd, True)
 	if isinstance(win, wx.TopLevelWindow):
@@ -611,6 +613,8 @@ def _restoreLight(win, hwnd, state):
 		native.applyRadio(hwnd, False)
 	if isinstance(win, _FOCUS_RING_TYPES):
 		native.applyFocusRing(hwnd, False)
+	if isinstance(win, wx.CheckBox):
+		native.applyCheckBox(hwnd, False)
 	if isinstance(win, wx.ListBox) and not isinstance(win, wx.CheckListBox):
 		native.applyListBox(hwnd, False)
 	if isinstance(win, wx.TopLevelWindow):
@@ -705,6 +709,10 @@ def setAccent(key: str, brightContrast: bool = False) -> bool:
 	native.SLIDER_THUMB = want.focus
 	native.SLIDER_THUMB_HOT = want.hot
 	native.SLIDER_THUMB_PRESSED = want.pressed
+	# check box ticks and radio dots: Windows' own with the Windows-coloured accent, else ours
+	native.GLYPH = None if want.windowsGlyphs else want.focus
+	native.GLYPH_HOT = None if want.windowsGlyphs else want.hot
+	native.GLYPH_PRESSED = None if want.windowsGlyphs else want.pressed
 	return True
 
 

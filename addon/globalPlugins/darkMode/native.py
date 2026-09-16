@@ -362,6 +362,16 @@ _Polygon = _gdi32.Polygon
 _Polygon.argtypes = (HANDLE, ctypes.c_void_p, ctypes.c_int)
 _RoundRect = _gdi32.RoundRect
 _RoundRect.argtypes = (HANDLE, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int)
+_Ellipse = _gdi32.Ellipse
+_Ellipse.argtypes = (HANDLE, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int)
+_Polyline = _gdi32.Polyline
+_Polyline.argtypes = (HANDLE, ctypes.c_void_p, ctypes.c_int)
+_CreateFontW = _gdi32.CreateFontW
+_CreateFontW.argtypes = (ctypes.c_int,) * 13 + (wintypes.LPCWSTR,)
+_CreateFontW.restype = HANDLE
+_GetTextFaceW = _gdi32.GetTextFaceW
+_GetTextFaceW.argtypes = (HANDLE, ctypes.c_int, wintypes.LPWSTR)
+_GetTextFaceW.restype = ctypes.c_int
 _SetBkMode = _gdi32.SetBkMode
 _SetBkMode.argtypes = (HANDLE, ctypes.c_int)
 _SetTextColor = _gdi32.SetTextColor
@@ -477,6 +487,11 @@ BP_CHECKBOX = 3
 BP_RADIOBUTTON = 2
 BM_GETCHECK = 0x00F0
 BST_CHECKED = 0x0001
+BST_INDETERMINATE = 0x0002
+BS_LEFTTEXT = 0x0020  # the box on the right of the label (not a layout NVDA uses)
+DEFAULT_CHARSET = 1
+CLEARTYPE_QUALITY = 5
+CHECK_MARK_GLYPH = "\uE73E"  # CheckMark in Segoe Fluent Icons / Segoe MDL2 Assets: what Windows itself draws
 RADIO_TEXT = (0xFF, 0xFF, 0xFF)
 RADIO_DISABLED_TEXT = (0x9C, 0x9C, 0x9C)
 CBS_UNCHECKEDNORMAL = 1
@@ -524,6 +539,9 @@ TVGN_CARET = 9
 LVM_GETIMAGELIST = 0x1000 + 2
 LVM_GETHEADER = 0x1000 + 31
 LVM_GETITEMSTATE = 0x1000 + 44
+LVM_GETITEMCOUNT = 0x1000 + 4
+LVM_GETTOPINDEX = 0x1000 + 39
+LVM_GETCOUNTPERPAGE = 0x1000 + 40
 LVM_GETEXTENDEDLISTVIEWSTYLE = 0x1000 + 55
 LVM_GETSUBITEMRECT = 0x1000 + 56
 LVM_GETCOLUMNW = 0x1000 + 95
@@ -564,6 +582,7 @@ ID_SLIDER = 14  # trackbars: track whether the mouse is over the thumb (custom d
 ID_FOCUS = 15  # check boxes, dropdowns, list views, trees: a solid focus ring instead of Windows' dotted one
 ID_FOCUSCHILD = 16  # the edit inside an editable combo box: repaint the combo's ring when focus moves
 ID_LISTBOX = 17  # plain list boxes and dropdown lists: our selection colour over Windows' bright accent
+ID_CHECK = 18  # check boxes: the checked glyph painted again in the Accent colour (Windows draws it in its own)
 
 
 def colorref(rgb):
@@ -605,7 +624,13 @@ LIST_TEXT = (0xFF, 0xFF, 0xFF)
 LIST_DISABLED_TEXT = (0x8A, 0x8A, 0x8A)
 LIST_SEL_UNFOCUSED_BG = (0x50, 0x50, 0x50)  # selected row while the list does not have focus
 LIST_SEL_BG = (0x1E, 0x5A, 0x8C)  # selected row (Accent setting); blue sits between the sidebar's dark blue and Windows' bright accent (white text 7.3:1)
-LIST_SEL_TEXT = (0xFF, 0xFF, 0xFF)  # (Accent setting: black on the yellow and white rows)
+LIST_SEL_TEXT = (0xFF, 0xFF, 0xFF)  # (Accent setting: black with Bright contrast)
+# Check box ticks and radio dots (Accent setting). None leaves Windows' own glyphs, drawn in
+# Windows' accent colour (the Blue accent); an RGB paints the checked glyph in that colour.
+GLYPH = None
+GLYPH_HOT = None  # under the mouse
+GLYPH_PRESSED = None  # mouse button down
+GLYPH_MARK = (0x00, 0x00, 0x00)  # the tick on an accent-filled box, the dot in an accent radio ring
 RING = 1  # focus rings and the menu outline, in pixels (the "Focus outline thickness" slider, 1 to RING_MAX)
 RING_MAX = 4
 TAB_TEXT = (0xC8, 0xC8, 0xC8)  # unselected tab label
@@ -794,20 +819,16 @@ def _drawListViewRow(hwnd, hdc, item):
 	_DeleteObject(brush)
 	if ex & LVS_EX_CHECKBOXES:
 		# the state image (check box) sits between the row's left edge and the label
-		stateImage = (_SendMessageW(hwnd, LVM_GETITEMSTATE, item, LVIS_STATEIMAGEMASK) & LVIS_STATEIMAGEMASK) >> 12
-		if stateImage:
-			height = bounds.bottom - bounds.top
-			glyph = max(12, min(height - 4, label.left - bounds.left - 2))
-			theme = _OpenThemeData(hwnd, "Button")
-			if theme:
-				size = SIZE()
-				if _GetThemePartSize(theme, hdc, BP_CHECKBOX, CBS_UNCHECKEDNORMAL, None, 1, ctypes.byref(size)) == 0 and size.cx:
-					glyph = min(size.cx, height)
-				x = bounds.left + max(0, (label.left - bounds.left - glyph) // 2)
-				y = bounds.top + (height - glyph) // 2
-				box = RECT(x, y, x + glyph, y + glyph)
-				_DrawThemeBackground(theme, hdc, BP_CHECKBOX, CBS_CHECKEDNORMAL if stateImage == 2 else CBS_UNCHECKEDNORMAL, ctypes.byref(box), None)
-				_CloseThemeData(theme)
+		found = _listViewCheckBox(hwnd, hdc, item)
+		if found:
+			stateImage, box = found
+			if stateImage == 2 and GLYPH is not None:
+				_drawCheckGlyph(hdc, box, BST_CHECKED)
+			else:
+				theme = _OpenThemeData(hwnd, "Button")
+				if theme:
+					_DrawThemeBackground(theme, hdc, BP_CHECKBOX, CBS_CHECKEDNORMAL if stateImage == 2 else CBS_UNCHECKEDNORMAL, ctypes.byref(box), None)
+					_CloseThemeData(theme)
 	font = _SendMessageW(hwnd, WM_GETFONT, 0, 0)
 	oldFont = _SelectObject(hdc, font) if font else None
 	_SetBkMode(hdc, TRANSPARENT)
@@ -1310,7 +1331,11 @@ def _paintCheckItem(dis):
 	pad = max(2, glyph // 6)
 	top = rc.top + (height - glyph) // 2
 	box = RECT(rc.left + pad, top, rc.left + pad + glyph, top + glyph)
-	if theme:
+	if checked and not disabled and GLYPH is not None:
+		_drawCheckGlyph(hdc, box, BST_CHECKED)
+		if theme:
+			_CloseThemeData(theme)
+	elif theme:
 		if checked:
 			state = CBS_CHECKEDDISABLED if disabled else CBS_CHECKEDNORMAL
 		else:
@@ -1359,6 +1384,175 @@ def _drawGrip(hwnd, hdc):
 	_DeleteObject(dotBrush)
 
 
+def _checkGlyphSize(hwnd, hdc, height):
+	"""The size Windows draws a check box glyph at for this window (theme part size)."""
+	dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
+	size = round(13 * dpi / 96)
+	theme = _OpenThemeData(hwnd, "Button")
+	if theme:
+		sz = SIZE()
+		if _GetThemePartSize(theme, hdc, BP_CHECKBOX, CBS_UNCHECKEDNORMAL, None, 1, ctypes.byref(sz)) == 0 and sz.cx:
+			size = sz.cx
+		_CloseThemeData(theme)
+	return max(6, min(size, height))
+
+
+def _drawCheckMark(hdc, box):
+	"""Windows' own check mark glyph (an icon font), black, centred in the box; a plain tick if
+	neither icon font is there."""
+	size = box.right - box.left
+	for face in ("Segoe Fluent Icons", "Segoe MDL2 Assets"):
+		font = _CreateFontW(-max(6, round(size * 0.62)), 0, 0, 0, 400, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, face)
+		if not font:
+			continue
+		old = _SelectObject(hdc, font)
+		buf = ctypes.create_unicode_buffer(64)
+		_GetTextFaceW(hdc, 64, buf)
+		if buf.value == face:  # not substituted
+			_SetBkMode(hdc, TRANSPARENT)
+			_SetTextColor(hdc, colorref(GLYPH_MARK))
+			r = RECT(box.left, box.top, box.right, box.bottom)
+			_DrawTextW(hdc, CHECK_MARK_GLYPH, -1, ctypes.byref(r), DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX)
+			_SelectObject(hdc, old)
+			_DeleteObject(font)
+			return
+		_SelectObject(hdc, old)
+		_DeleteObject(font)
+	pen = _CreatePen(PS_SOLID, max(1, round(size / 8)), colorref(GLYPH_MARK))
+	old = _SelectObject(hdc, pen)
+	pts = (wintypes.POINT * 3)(
+		wintypes.POINT(box.left + size * 22 // 100, box.top + size * 52 // 100),
+		wintypes.POINT(box.left + size * 42 // 100, box.top + size * 72 // 100),
+		wintypes.POINT(box.left + size * 78 // 100, box.top + size * 30 // 100),
+	)
+	_Polyline(hdc, pts, 3)
+	_SelectObject(hdc, old)
+	_DeleteObject(pen)
+
+
+def _drawCheckGlyph(hdc, box, state, hot=False, pushed=False):
+	"""A checked (BST_CHECKED) or mixed (BST_INDETERMINATE) check box glyph in the accent: a
+	filled rounded square with a black mark, the shape Windows 11 draws in its own accent.
+	Only called when GLYPH is set."""
+	colour = GLYPH_PRESSED if pushed else GLYPH_HOT if hot else GLYPH
+	size = box.right - box.left
+	radius = max(2, round(size / 5))
+	pen = _CreatePen(PS_SOLID, 1, colorref(colour))
+	brush = _CreateSolidBrush(colorref(colour))
+	oldPen = _SelectObject(hdc, pen)
+	oldBrush = _SelectObject(hdc, brush)
+	_RoundRect(hdc, box.left, box.top, box.right, box.bottom, radius, radius)
+	_SelectObject(hdc, oldPen)
+	_SelectObject(hdc, oldBrush)
+	_DeleteObject(pen)
+	_DeleteObject(brush)
+	if state == BST_INDETERMINATE:
+		bar = RECT(box.left + size * 5 // 16, box.top + size * 7 // 16, box.right - size * 5 // 16, box.bottom - size * 7 // 16)
+		mark = _CreateSolidBrush(colorref(GLYPH_MARK))
+		_FillRect(hdc, ctypes.byref(bar), mark)
+		_DeleteObject(mark)
+	else:
+		_drawCheckMark(hdc, box)
+
+
+def _drawRadioGlyph(hdc, box, hot=False, pushed=False):
+	"""A checked radio button in the accent: an accent disc with a dark centre dot, as Windows 11
+	draws it in its own accent. Only called when GLYPH is set."""
+	colour = GLYPH_PRESSED if pushed else GLYPH_HOT if hot else GLYPH
+	size = box.right - box.left
+	for rgb, inset in ((colour, 0), (PARENT_BG, max(2, round(size * 0.28)))):
+		pen = _CreatePen(PS_SOLID, 1, colorref(rgb))
+		brush = _CreateSolidBrush(colorref(rgb))
+		oldPen = _SelectObject(hdc, pen)
+		oldBrush = _SelectObject(hdc, brush)
+		_Ellipse(hdc, box.left + inset, box.top + inset, box.right - inset, box.bottom - inset)
+		_SelectObject(hdc, oldPen)
+		_SelectObject(hdc, oldBrush)
+		_DeleteObject(pen)
+		_DeleteObject(brush)
+
+
+def _paintCheckBoxGlyph(hwnd):
+	"""After Windows painted a check box (ID_CHECK): its checked glyph again, in the accent.
+	Windows' layout and label are left exactly as painted; only the glyph is covered."""
+	if GLYPH is None or not _IsWindowEnabled(hwnd):
+		return
+	state = _SendMessageW(hwnd, BM_GETCHECK, 0, 0) & 3
+	if not state:
+		return
+	if _GetWindowLongW(hwnd, GWL_STYLE) & BS_LEFTTEXT:
+		return
+	rc = RECT()
+	_GetClientRect(hwnd, ctypes.byref(rc))
+	hdc = _GetDC(hwnd)
+	if not hdc:
+		return
+	try:
+		size = _checkGlyphSize(hwnd, hdc, rc.bottom)
+		top = max(0, (rc.bottom - size) // 2)  # Windows centres the box on the (single) text line
+		box = RECT(0, top, size, top + size)
+		# Windows' glyph first: its anti-aliased corners reach a pixel past our square corners.
+		clear = RECT(0, max(0, top - 1), min(rc.right, size + 1), min(rc.bottom, top + size + 1))
+		bg = _CreateSolidBrush(colorref(PARENT_BG))
+		_FillRect(hdc, ctypes.byref(clear), bg)
+		_DeleteObject(bg)
+		bs = _SendMessageW(hwnd, BM_GETSTATE, 0, 0)
+		_drawCheckGlyph(hdc, box, state, hot=bool(bs & BST_HOT), pushed=bool(bs & BST_PUSHED))
+	finally:
+		_ReleaseDC(hwnd, hdc)
+
+
+def _listViewCheckBox(hwnd, hdc, item):
+	"""For a list view with check boxes: the state image (1 unchecked, 2 checked) and the box
+	Windows draws it in, or None."""
+	stateImage = (_SendMessageW(hwnd, LVM_GETITEMSTATE, item, LVIS_STATEIMAGEMASK) & LVIS_STATEIMAGEMASK) >> 12
+	if not stateImage:
+		return None
+	bounds = RECT(LVIR_BOUNDS, 0, 0, 0)
+	label = RECT(LVIR_LABEL, 0, 0, 0)
+	if not _SendMessageW(hwnd, LVM_GETITEMRECT, item, ctypes.addressof(bounds)):
+		return None
+	if not _SendMessageW(hwnd, LVM_GETITEMRECT, item, ctypes.addressof(label)):
+		return None
+	height = bounds.bottom - bounds.top
+	glyph = max(12, min(height - 4, label.left - bounds.left - 2))
+	theme = _OpenThemeData(hwnd, "Button")
+	if theme:
+		size = SIZE()
+		if _GetThemePartSize(theme, hdc, BP_CHECKBOX, CBS_UNCHECKEDNORMAL, None, 1, ctypes.byref(size)) == 0 and size.cx:
+			glyph = min(size.cx, height)
+		_CloseThemeData(theme)
+	x = bounds.left + max(0, (label.left - bounds.left - glyph) // 2)
+	y = bounds.top + (height - glyph) // 2
+	return stateImage, RECT(x, y, x + glyph, y + glyph)
+
+
+def _overdrawListViewChecks(hwnd):
+	"""After a list view with check boxes painted: the checked glyphs of the rows Windows drew
+	(the unselected ones) again, in the accent. Selected rows are painted by _drawListViewRow."""
+	if GLYPH is None:
+		return
+	if not _SendMessageW(hwnd, LVM_GETEXTENDEDLISTVIEWSTYLE, 0, 0) & LVS_EX_CHECKBOXES:
+		return
+	count = _SendMessageW(hwnd, LVM_GETITEMCOUNT, 0, 0)
+	if count <= 0:
+		return
+	top = _SendMessageW(hwnd, LVM_GETTOPINDEX, 0, 0)
+	perPage = _SendMessageW(hwnd, LVM_GETCOUNTPERPAGE, 0, 0)
+	hdc = _GetDC(hwnd)
+	if not hdc:
+		return
+	try:
+		for item in range(max(0, top), min(count, top + perPage + 1)):
+			if _SendMessageW(hwnd, LVM_GETITEMSTATE, item, LVIS_SELECTED) & LVIS_SELECTED:
+				continue
+			found = _listViewCheckBox(hwnd, hdc, item)
+			if found and found[0] == 2:
+				_drawCheckGlyph(hdc, found[1], BST_CHECKED)
+	finally:
+		_ReleaseDC(hwnd, hdc)
+
+
 def _paintRadio(hwnd):
 	_paintWith(hwnd, _drawRadio)
 
@@ -1399,7 +1593,10 @@ def _drawRadio(hwnd, hdc):
 			part = 2
 		if checked:
 			part += 4
-		_DrawThemeBackground(theme, hdc, BP_RADIOBUTTON, part, ctypes.byref(box), None)
+		if checked and enabled and GLYPH is not None:
+			_drawRadioGlyph(hdc, box, hot=hot, pushed=pushed)
+		else:
+			_DrawThemeBackground(theme, hdc, BP_RADIOBUTTON, part, ctypes.byref(box), None)
 		_CloseThemeData(theme)
 	text = _windowText(hwnd)
 	if text:
@@ -1757,6 +1954,8 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 		elif idSubclass == ID_FOCUS:
 			if msg == WM_PAINT:
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				if _className(hwnd) == "SysListView32":
+					_overdrawListViewChecks(hwnd)
 				_paintFocusOverlay(hwnd)
 				return res
 			if msg in (WM_SETFOCUS, WM_KILLFOCUS):
@@ -1803,6 +2002,11 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 			elif msg == WM_MOUSELEAVE:
 				if _sliderHot.pop(hwnd, None):
 					_InvalidateRect(hwnd, None, False)
+		elif idSubclass == ID_CHECK:
+			if msg == WM_PAINT:
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				_paintCheckBoxGlyph(hwnd)
+				return res
 		elif idSubclass == ID_RADIO:
 			if msg == WM_PAINT:
 				_paintRadio(hwnd)
@@ -2213,6 +2417,16 @@ def applyRadio(hwnd, dark: bool):
 		_attach(hwnd, ID_RADIO)
 	else:
 		_detach(hwnd, ID_RADIO)
+	if _IsWindow(hwnd):
+		_InvalidateRect(hwnd, None, True)
+
+
+def applyCheckBox(hwnd, dark: bool):
+	"""The checked glyph of a check box in the accent (nothing changes while GLYPH is None)."""
+	if dark:
+		_attach(hwnd, ID_CHECK)
+	else:
+		_detach(hwnd, ID_CHECK)
 	if _IsWindow(hwnd):
 		_InvalidateRect(hwnd, None, True)
 
