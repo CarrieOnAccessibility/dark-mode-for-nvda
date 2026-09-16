@@ -3,7 +3,11 @@
 # dialog the dev hook can open, and the menus. Flags dark text on dark backgrounds and
 # light backgrounds. Needs NVDA running with the dev build.
 #
-#   python dev/sweep.py
+#   python dev/sweep.py [--background <key>] [--accent <key>] [--bright on|off] [--outline 1..4]
+#
+# Each given setting is switched live first (keys as in themes.py) and left in place
+# afterwards; without them the sweep runs under whatever is set.
+import argparse
 import os
 import subprocess
 import sys
@@ -11,6 +15,13 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXEC = os.path.join(HERE, "nvda_exec.py")
+
+ap = argparse.ArgumentParser()
+ap.add_argument("--background")
+ap.add_argument("--accent")
+ap.add_argument("--bright", choices=("on", "off"))
+ap.add_argument("--outline", type=int, choices=(1, 2, 3, 4))
+args = ap.parse_args()
 
 
 def run(*args, timeout=20):
@@ -34,6 +45,14 @@ def audit(title):
 
 
 problems = {}
+
+# --- theme under test ----------------------------------------------------------
+for name, key in (("background", "background"), ("accent", "accent"), ("bright", "brightContrast"), ("outline", "outlineWidth")):
+	value = getattr(args, name)
+	if value:
+		section("Setting: %s = %s" % (key, value))
+		print("  " + run("setting", key, str(value)))
+		time.sleep(1)
 
 # --- settings categories -----------------------------------------------------
 cats = run("categories").strip().split("|")
@@ -144,6 +163,7 @@ for name, keys in (("sweep-menu-main", ""), ("sweep-menu-prefs", "down,right"), 
 		problems["Menu: " + name] = ["light menu"]
 
 section("SUMMARY")
+print("  background=%s accent=%s bright=%s outline=%s" % (args.background or "(as set)", args.accent or "(as set)", args.bright or "(as set)", args.outline or "(as set)"))
 if not problems:
 	print("  nothing flagged")
 for k, v in problems.items():

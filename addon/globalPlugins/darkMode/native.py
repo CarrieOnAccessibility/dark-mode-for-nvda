@@ -380,6 +380,7 @@ WM_NCDESTROY = 0x0082
 WM_NCPAINT = 0x0085
 WM_UPDATEUISTATE = 0x0128
 WM_MOUSEMOVE = 0x0200
+WM_HSCROLL = 0x0114
 WM_MOUSELEAVE = 0x02A3
 TME_LEAVE = 0x2
 HDM_GETITEMCOUNT = 0x1200
@@ -571,18 +572,20 @@ def colorref(rgb):
 
 
 # --- Palette (RGB tuples). Tweak here. -------------------------------------
+# The ones marked "Background setting" / "Accent setting" are overwritten by theming.setBackground /
+# setAccent from the tables in themes.py; the values here are what the test bench starts from.
 BORDER = (0xC8, 0xC8, 0xC8)  # light grey frame around fields, lists, buttons
-FOCUS = (0x60, 0xCD, 0xFF)  # focus rings: the Windows 11 dark-mode accent blue, same as the check box glyphs
+FOCUS = (0x60, 0xCD, 0xFF)  # focus rings (Accent setting); blue = the Windows 11 dark-mode accent, same as the check box glyphs
 FRAME_INNER = (0x2B, 0x2B, 0x2B)  # covers the theme's inner white line (matches field background)
-PARENT_BG = (0x20, 0x20, 0x20)  # dialog background, shows behind rounded button corners
+PARENT_BG = (0x20, 0x20, 0x20)  # dialog background (Background setting), shows behind rounded button corners
 GRIP_DOT = (0x62, 0x62, 0x62)  # size grip dots: visible if you look for them, nothing more
 LAYOUT_LINE = (0x8C, 0x8C, 0x8C)  # structure, not controls: panel frames, group boxes, separators, under the title bar
 SLIDER_TRACK = (0x8C, 0x8C, 0x8C)  # the groove a slider thumb runs in
-SLIDER_THUMB = (0x60, 0xCD, 0xFF)  # the thumb: the same accent blue as a checked check box
-SLIDER_THUMB_HOT = (0x00, 0x78, 0xD7)  # hovered: the darker accent (Windows painted it black)
-SLIDER_THUMB_PRESSED = (0x00, 0x5F, 0xB8)
+SLIDER_THUMB = (0x60, 0xCD, 0xFF)  # the thumb (Accent setting): the same colour as the focus rings
+SLIDER_THUMB_HOT = (0x00, 0x78, 0xD7)  # hovered (Accent setting): a darker shade (Windows painted it black)
+SLIDER_THUMB_PRESSED = (0x00, 0x5F, 0xB8)  # (Accent setting)
 SLIDER_THUMB_DISABLED = (0x70, 0x70, 0x70)
-MENUBAR_BG = (0x20, 0x20, 0x20)  # menu bar strip (log viewer, Python console): same as the window
+MENUBAR_BG = (0x20, 0x20, 0x20)  # menu bar strip (log viewer, Python console): same as the window (Background setting)
 MENUBAR_HOT_BG = (0x3A, 0x3A, 0x3A)  # menu bar item under the mouse / open
 MENUBAR_TEXT = (0xFF, 0xFF, 0xFF)
 MENUBAR_DISABLED_TEXT = (0x9C, 0x9C, 0x9C)
@@ -596,14 +599,15 @@ BTN_HOT_BORDER = (0xE8, 0xE8, 0xE8)
 BTN_DISABLED_BORDER = (0x80, 0x80, 0x80)
 BTN_TEXT = (0xFF, 0xFF, 0xFF)
 BTN_DISABLED_TEXT = (0x9C, 0x9C, 0x9C)  # readable, a step down from enabled
-LIST_BG = (0x2B, 0x2B, 0x2B)  # lists and trees (black with the "black backgrounds" setting)
+LIST_BG = (0x2B, 0x2B, 0x2B)  # lists and trees (Background setting)
 FIELD_BG = (0x2B, 0x2B, 0x2B)  # text fields and dropdowns: stays
 LIST_TEXT = (0xFF, 0xFF, 0xFF)
 LIST_DISABLED_TEXT = (0x8A, 0x8A, 0x8A)
 LIST_SEL_UNFOCUSED_BG = (0x50, 0x50, 0x50)  # selected row while the list does not have focus
-LIST_SEL_BG = (0x1E, 0x5A, 0x8C)  # selected row: between the sidebar's dark blue and Windows' bright accent (white text 7.3:1)
-LIST_SEL_TEXT = (0xFF, 0xFF, 0xFF)
-RING = 1  # focus rings and the menu outline, in pixels; 2 with the "thicker outlines" setting
+LIST_SEL_BG = (0x1E, 0x5A, 0x8C)  # selected row (Accent setting); blue sits between the sidebar's dark blue and Windows' bright accent (white text 7.3:1)
+LIST_SEL_TEXT = (0xFF, 0xFF, 0xFF)  # (Accent setting: black on the yellow and white rows)
+RING = 1  # focus rings and the menu outline, in pixels (the "Focus outline thickness" slider, 1 to RING_MAX)
+RING_MAX = 4
 TAB_TEXT = (0xC8, 0xC8, 0xC8)  # unselected tab label
 TAB_SELECTED_FACE = (0x3A, 0x3A, 0x3A)
 TAB_HOT_FACE = (0x50, 0x50, 0x50)
@@ -659,9 +663,13 @@ def _paintFrame(hwnd):
 		outer = _CreateSolidBrush(colorref(FOCUS if focused else _frameColours.get(hwnd, BORDER)))
 		inner = _CreateSolidBrush(colorref(FRAME_INNER))
 		try:
-			for i in range(thick):
+			# focused: the ring is RING lines deep; the rest stays the field colour. A ring
+			# thicker than the edge carries on into the control's own first pixels (the window
+			# DC covers them); the control paints over those on its next WM_PAINT, after which
+			# the ID_FRAME handler paints the frame again.
+			depth = max(thick, RING) if focused else thick
+			for i in range(depth):
 				rc = RECT(i, i, w - i, h - i)
-				# focused: the ring is RING lines deep; the rest stays the field colour
 				_FrameRect(hdc, ctypes.byref(rc), outer if (i == 0 or (focused and i < RING)) else inner)
 		finally:
 			_DeleteObject(outer)
@@ -947,8 +955,10 @@ def _drawButton(hwnd, hdc):
 	_DeleteObject(brush)
 
 	ring = None
+	lines = 1
 	if focusRing:
-		ring = FOCUS if RING >= 2 else None  # thick: a second line inside the border
+		ring = FOCUS if RING >= 2 else None  # thicker: more lines inside the border
+		lines = RING - 1
 	elif default and enabled:
 		ring = border
 	if ring:
@@ -956,7 +966,8 @@ def _drawButton(hwnd, hdc):
 		hollow = _gdi32.GetStockObject(5)  # NULL_BRUSH
 		oldPen = _SelectObject(hdc, pen)
 		oldBrush = _SelectObject(hdc, hollow)
-		_RoundRect(hdc, 1, 1, w - 1, h - 1, radius, radius)
+		for i in range(1, 1 + lines):
+			_RoundRect(hdc, i, i, w - i, h - i, radius, radius)
 		_SelectObject(hdc, oldPen)
 		_SelectObject(hdc, oldBrush)
 		_DeleteObject(pen)
@@ -1663,6 +1674,16 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 				_RedrawWindow(hwnd, None, None, RDW_FRAME | RDW_INVALIDATE)
 				return res
+			if msg == WM_PAINT and _GetFocus() == hwnd and RING > _frameOf(hwnd):
+				# the ring reaches into the client area, which this paint just covered
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				_paintFrame(hwnd)
+				return res
+			if msg in (WM_VSCROLL, WM_HSCROLL, WM_MOUSEWHEEL) and _GetFocus() == hwnd and RING > _frameOf(hwnd):
+				# scrolling shifts the client pixels, our ring's inner lines with them
+				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
+				_InvalidateRect(hwnd, None, False)
+				return res
 		elif idSubclass == ID_RICH:
 			# Text replacement and font changes both reset a rich edit's default character
 			# colour to "automatic" (black); put ours back after each.
@@ -2256,9 +2277,13 @@ def applyListBox(hwnd, dark: bool):
 		_InvalidateRect(hwnd, None, False)
 
 
-def setRingWidth(pixels: int):
+def setRingWidth(pixels: int) -> bool:
+	"""Focus rings and the menu outline, 1 to RING_MAX pixels. Returns True if it changed."""
 	global RING
-	RING = 2 if pixels >= 2 else 1
+	want = max(1, min(RING_MAX, int(pixels)))
+	changed = want != RING
+	RING = want
+	return changed
 
 
 def registerSlider(hwnd, hwndParent, dark: bool):

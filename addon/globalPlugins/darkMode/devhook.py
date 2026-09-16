@@ -396,18 +396,25 @@ class DevHook:
 		print("toggled; active now", self.plugin.engine.active)
 
 	def v_setting(self, name, value="on"):
-		"""Flip one of the add-on's visual settings live: thickOutlines or blackBackgrounds, on|off."""
+		"""Set one of the add-on's look settings live, as OK in the panel would: background <key>,
+		accent <key> (keys as in themes.py), brightContrast on|off, outlineWidth 1..4."""
 		import config
 
 		import globalPlugins.darkMode as pkg
 
-		if name not in ("thickOutlines", "blackBackgrounds"):
+		if name == "brightContrast":
+			config.conf[pkg.CONF_SECTION][name] = value == "on"
+		elif name == "outlineWidth":
+			config.conf[pkg.CONF_SECTION][name] = int(value)
+		elif name in ("background", "accent"):
+			config.conf[pkg.CONF_SECTION][name] = value
+		else:
 			print("unknown setting", name)
 			return
-		config.conf[pkg.CONF_SECTION][name] = value == "on"
-		pkg.applyRingWidth()
-		pkg.applyBackground()
-		print(name, "->", config.conf[pkg.CONF_SECTION][name], "| BG", theming_bg())
+		pkg.applyLook()
+		from . import native, theming
+
+		print(name, "->", config.conf[pkg.CONF_SECTION][name], "| BG", theming_bg(), "| background", theming.currentBackground(), "accent", theming.currentAccent(), "bright", theming.brightContrast(), "ring", native.RING)
 
 	def v_showtrace(self, state="on"):
 		"""Log the show-time paint of top-level windows (WINDOWPOSCHANGED flags, how long the synchronous paint took)."""

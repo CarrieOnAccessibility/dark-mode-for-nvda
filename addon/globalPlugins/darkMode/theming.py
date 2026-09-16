@@ -29,9 +29,10 @@ import winreg
 import wx
 
 try:
-	from . import native
+	from . import native, themes
 except ImportError:  # imported as a plain module by the dev test bench
 	import native
+	import themes
 
 try:
 	from logHandler import log
@@ -42,14 +43,16 @@ except ImportError:  # running outside NVDA (test bench)
 
 # --- Palette ----------------------------------------------------------------
 # Windows 11 dark: app background #202020, raised surfaces #2b2b2b, text white.
-BG_GREY = wx.Colour(0x20, 0x20, 0x20)  # the usual dialog background
-BG_BLACK = wx.Colour(0x00, 0x00, 0x00)  # the "black backgrounds" setting
-BG = BG_GREY
-FIELD_BG = wx.Colour(0x2B, 0x2B, 0x2B)  # text fields, dropdowns, spin boxes
-LIST_BG_GREY = wx.Colour(0x2B, 0x2B, 0x2B)  # lists and trees
-LIST_BG_BLACK = wx.Colour(0x00, 0x00, 0x00)  # ...with the "black backgrounds" setting
-LIST_BG = LIST_BG_GREY
+# BG and LIST_BG follow the Background setting (themes.py); setBackground() below sets
+# them and the matching constants in native.py. The accent colours live in native.py
+# only and follow the Accent setting through setAccent().
+BG = wx.Colour(0x20, 0x20, 0x20)  # dialog background: seeded from the default Background at import
+LIST_BG = wx.Colour(0x2B, 0x2B, 0x2B)  # lists and trees: likewise
+FIELD_BG = wx.Colour(0x2B, 0x2B, 0x2B)  # text fields, dropdowns, spin boxes: the same under every Background
 FG = wx.Colour(0xFF, 0xFF, 0xFF)
+_background = None  # the current themes.Background
+_accent = None  # the current themes.Accent
+_brightContrast = False  # selected rows in the accent colour itself, with black text
 
 # --- Win32 plumbing ---------------------------------------------------------
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -463,10 +466,10 @@ def _inPythonConsole(win) -> bool:
 
 
 def _followsDialogBackground(win, hwnd) -> bool:
-	"""With black backgrounds on, text areas that show rather than take text (the speech
-	viewer, the Add-on Store's description and details, the Python console's output and its
-	input) go black with the dialog instead of keeping the field grey."""
-	if BG != BG_BLACK or not isinstance(win, wx.TextCtrl):
+	"""With a Background that asks for it (black), text areas that show rather than take text
+	(the speech viewer, the Add-on Store's description and details, the Python console's
+	output and its input) take the dialog background instead of keeping the field grey."""
+	if not (_background and _background.textAreasFollow) or not isinstance(win, wx.TextCtrl):
 		return False
 	if _inPythonConsole(win):
 		return True
@@ -668,20 +671,58 @@ def themeAllWindows(dark: bool = True, force: bool = False):
 		themeTree(tlw, dark, force)
 
 
-def setBlackBackgrounds(black: bool) -> bool:
-	"""Switch the dialog background between dark grey and black (fields, lists, buttons and
+def setBackground(key: str) -> bool:
+	"""Switch the dialog background to the named themes.Background (fields, buttons and
 	menus keep their own colours). Returns True if it changed; the caller re-themes."""
-	global BG, LIST_BG
-	want = BG_BLACK if black else BG_GREY
-	if BG == want:
+	global BG, LIST_BG, _background
+	want = themes.background(key)
+	if _background is not None and want.key == _background.key:
 		return False
-	BG = want
-	LIST_BG = LIST_BG_BLACK if black else LIST_BG_GREY
-	rgb = (want.Red(), want.Green(), want.Blue())
-	native.PARENT_BG = rgb  # what our painters clear to behind buttons, radios, sliders, boxes, the grip
-	native.MENUBAR_BG = rgb  # the strip behind a window's menu bar
-	native.LIST_BG = (LIST_BG.Red(), LIST_BG.Green(), LIST_BG.Blue())  # check-list rows, list erase base
+	_background = want
+	BG = wx.Colour(*want.bg)
+	LIST_BG = wx.Colour(*want.listBg)
+	native.PARENT_BG = want.bg  # what our painters clear to behind buttons, radios, sliders, boxes, the grip
+	native.MENUBAR_BG = want.bg  # the strip behind a window's menu bar
+	native.LIST_BG = want.listBg  # check-list rows, list erase base
 	return True
+
+
+def setAccent(key: str, brightContrast: bool = False) -> bool:
+	"""Switch focus rings, the menu outline, selected list rows and slider thumbs to the named
+	themes.Accent; with brightContrast the selected row is the accent colour itself with black
+	text. Returns True if anything changed; the painters read these at paint time, so the
+	caller only repaints."""
+	global _accent, _brightContrast
+	want = themes.accent(key)
+	brightContrast = bool(brightContrast)
+	if _accent is not None and want.key == _accent.key and brightContrast == _brightContrast:
+		return False
+	_accent = want
+	_brightContrast = brightContrast
+	native.FOCUS = want.focus
+	native.LIST_SEL_BG = want.focus if brightContrast else want.selection
+	native.LIST_SEL_TEXT = themes.BLACK if brightContrast else themes.WHITE
+	native.SLIDER_THUMB = want.focus
+	native.SLIDER_THUMB_HOT = want.hot
+	native.SLIDER_THUMB_PRESSED = want.pressed
+	return True
+
+
+def currentBackground() -> str:
+	return _background.key if _background else themes.DEFAULT_BACKGROUND
+
+
+def currentAccent() -> str:
+	return _accent.key if _accent else themes.DEFAULT_ACCENT
+
+
+def brightContrast() -> bool:
+	return _brightContrast
+
+
+# One source of truth: the defaults in themes.py, not the literals above or in native.py.
+setBackground(themes.DEFAULT_BACKGROUND)
+setAccent(themes.DEFAULT_ACCENT)
 
 
 def repaintAllWindows():

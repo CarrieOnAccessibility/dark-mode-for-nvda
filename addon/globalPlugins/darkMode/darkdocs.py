@@ -73,11 +73,19 @@ def _pageBackground():
 	return "#202020"
 
 
+def _lighter(bg, n):
+	return "#" + "".join("%02x" % min(255, int(bg[i : i + 2], 16) + n) for i in (1, 3, 5))
+
+
 def darkCss():
 	bg = _pageBackground()
-	black = bg == "#000000"
-	# table cells a step lighter than the page, so a table still reads as a table
-	return DARK_CSS % {"bg": bg, "td": "#141414" if black else "#262626", "tdEven": "#1c1c1c" if black else "#2b2b2b"}
+	# table cells a step lighter than the page, so a table still reads as a table; pure
+	# black needs a bigger step to show at all (the same cells as before the colours)
+	if bg == "#000000":
+		td, tdEven = "#141414", "#1c1c1c"
+	else:
+		td, tdEven = _lighter(bg, 6), _lighter(bg, 11)
+	return DARK_CSS % {"bg": bg, "td": td, "tdEven": tdEven}
 LINK_TAG = '<link rel="stylesheet" href="%s">' % CSS_NAME
 
 

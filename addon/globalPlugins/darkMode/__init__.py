@@ -20,7 +20,7 @@ from scriptHandler import script
 import ui
 import wx
 
-from . import darkdocs, native, theming
+from . import darkdocs, native, themes, theming
 
 try:
 	from . import devhook  # development builds only; absent from the packaged add-on
@@ -36,8 +36,15 @@ CONF_SECTION = "darkMode"
 config.conf.spec[CONF_SECTION] = {
 	"mode": "option('dark', 'off', default='dark')",
 	"restartWhenOff": "boolean(default=True)",
-	"thickOutlines": "boolean(default=False)",
+	"background": themes.optionSpec(themes.BACKGROUNDS, themes.DEFAULT_BACKGROUND),
+	"accent": themes.optionSpec(themes.ACCENTS, themes.DEFAULT_ACCENT),
+	"brightContrast": "boolean(default=False)",
+	"outlineWidth": "integer(min=1, max=%d, default=1)" % native.RING_MAX,
+	# Up to 0.9.3 the background was a "Use black backgrounds" check box and the outline a
+	# "Thicker focus outlines" one. Kept so the old values can still be read; migrateConfig()
+	# carries them into "background" / "outlineWidth" once and clears them.
 	"blackBackgrounds": "boolean(default=False)",
+	"thickOutlines": "boolean(default=False)",
 }
 
 
@@ -46,20 +53,42 @@ def wantDark() -> bool:
 	return config.conf[CONF_SECTION]["mode"] != "off"
 
 
-def applyBackground(retheme: bool = True):
-	"""Dialog backgrounds dark grey or black, per the setting; re-themes open windows if it changed."""
-	changed = theming.setBlackBackgrounds(bool(config.conf[CONF_SECTION]["blackBackgrounds"]))
+def migrateConfig():
+	"""Carry the 0.9.3 check boxes into the settings that replaced them, once."""
+	section = config.conf[CONF_SECTION]
+	changed = False
+	if section["blackBackgrounds"]:
+		section["background"] = "black"
+		section["blackBackgrounds"] = False
+		changed = True
+	if section["thickOutlines"]:
+		section["outlineWidth"] = 2
+		section["thickOutlines"] = False
+		changed = True
+	if changed:
+		saveConfig()
+
+
+def setLook(background: str, accent: str, brightContrast: bool, outlineWidth: int, live: bool = True):
+	"""Push a set of look values into the engine. With live, open windows follow: a new
+	background re-themes them (wx holds the old colours); an accent, bright contrast or outline
+	change only needs a repaint, the painters read those at paint time."""
+	backgroundChanged = theming.setBackground(background)
+	accentChanged = theming.setAccent(accent, brightContrast)
+	ringChanged = native.setRingWidth(outlineWidth)
 	plugin = GlobalPlugin.instance
-	if changed and retheme and plugin and plugin.engine.active:
+	if not (live and plugin and plugin.engine.active):
+		return
+	if backgroundChanged:
 		theming.themeAllWindows(True, force=True)
+	if backgroundChanged or accentChanged or ringChanged:
 		theming.repaintAllWindows()
 
 
-def applyRingWidth(repaint: bool = True):
-	"""Focus rings and the menu outline: one pixel, or two with the thicker-outlines setting."""
-	native.setRingWidth(2 if config.conf[CONF_SECTION]["thickOutlines"] else 1)
-	if repaint:
-		theming.repaintAllWindows()
+def applyLook(live: bool = True):
+	"""The look as saved in the settings (after OK, Cancel, a profile switch, at start)."""
+	section = config.conf[CONF_SECTION]
+	setLook(section["background"], section["accent"], section["brightContrast"], section["outlineWidth"], live)
 
 
 def setMode(mode: str):
@@ -105,48 +134,116 @@ def toggle():
 	ui.message(_("Dark mode on") if turningOn else _("Dark mode off"))
 
 
+def _sliderClass():
+	"""NVDA's slider (arrow keys and page keys behave), or wx's if it is not there."""
+	try:
+		from gui import nvdaControls
+
+		return nvdaControls.EnhancedInputSlider
+	except Exception:
+		return wx.Slider
+
+
 class DarkModeSettingsPanel(SettingsPanel):
+	"""The look settings preview live: changing a colour or the outline width re-themes the open
+	windows at once, this dialog included, so the dialog is its own preview. OK and Apply keep
+	it (onSave); Cancel and Escape put the saved look back (onDiscard). Only the on/off check
+	box waits for OK, since turning off can restart NVDA."""
+
 	# Translators: title of the Dark Mode category in the NVDA Settings dialog.
 	title = _("Dark Mode")
 	helpId = ""
+	PREVIEW_DELAY_MS = 120  # arrowing through a dropdown fires a change per item; re-theme once it settles
 
 	def makeSettings(self, settingsSizer):
 		sHelper = guiHelper.BoxSizerHelper(self, sizer=settingsSizer)
+		section = config.conf[CONF_SECTION]
+		self._preview = None
 		# Translators: label of the check box that turns NVDA's dark mode on or off.
-		self.enabledCheckBox = sHelper.addItem(wx.CheckBox(self, label=_("&Dark mode for NVDA's windows and menus")))
-		self.enabledCheckBox.SetValue(config.conf[CONF_SECTION]["mode"] != "off")
-		self.blackCheckBox = sHelper.addItem(
-			# Translators: label of the check box that makes dialog backgrounds black instead of dark grey.
-			wx.CheckBox(self, label=_("Use &black backgrounds"))
+		self.enabledCheckBox = sHelper.addItem(wx.CheckBox(self, label=_("&Use Dark mode for NVDA")))
+		self.enabledCheckBox.SetValue(section["mode"] != "off")
+		self.backgroundChoice = sHelper.addLabeledControl(
+			# Translators: label of the dropdown that picks the background colour of NVDA's windows.
+			_("&Background:"),
+			wx.Choice,
+			choices=[entry.label for entry in themes.BACKGROUNDS],
 		)
-		self.blackCheckBox.SetValue(bool(config.conf[CONF_SECTION]["blackBackgrounds"]))
+		self.backgroundChoice.SetSelection(themes.index(themes.BACKGROUNDS, section["background"]))
+		self.accentChoice = sHelper.addLabeledControl(
+			# Translators: label of the dropdown that picks the colour of focus rings and selected list rows.
+			_("&Accent:"),
+			wx.Choice,
+			choices=[entry.label for entry in themes.ACCENTS],
+		)
+		self.accentChoice.SetSelection(themes.index(themes.ACCENTS, section["accent"]))
+		self.brightCheckBox = sHelper.addItem(
+			# Translators: label of the check box that paints selected list rows in the accent colour with black text.
+			wx.CheckBox(self, label=_("Bright &contrast: selected rows in the accent colour"))
+		)
+		self.brightCheckBox.SetValue(bool(section["brightContrast"]))
+		self.outlineSlider = sHelper.addLabeledControl(
+			# Translators: label of the slider that sets how thick focus rings and the menu outline are, in pixels.
+			_("Focus outline &thickness:"),
+			_sliderClass(),
+			value=int(section["outlineWidth"]),
+			minValue=1,
+			maxValue=native.RING_MAX,
+		)
 		self.restartCheckBox = sHelper.addItem(
 			# Translators: label of the check box that makes NVDA restart when dark mode is turned off.
 			wx.CheckBox(self, label=_("&Restart NVDA when dark mode is turned off (recommended)"))
 		)
-		self.restartCheckBox.SetValue(bool(config.conf[CONF_SECTION]["restartWhenOff"]))
-		self.thickCheckBox = sHelper.addItem(
-			# Translators: label of the check box that makes focus rings and the menu outline two pixels thick.
-			wx.CheckBox(self, label=_("&Thicker focus outlines"))
-		)
-		self.thickCheckBox.SetValue(bool(config.conf[CONF_SECTION]["thickOutlines"]))
+		self.restartCheckBox.SetValue(bool(section["restartWhenOff"]))
 		note = wx.StaticText(
 			self,
 			# Translators: explanatory text shown in the Dark Mode settings category.
 			label=_(
+				"Colours and the outline thickness show as you choose them; Cancel puts them back. "
 				"You can toggle dark mode in the NVDA menu under Preferences, or add a keyboard shortcut "
 				"in Input Gestures. Dark mode turns off automatically while Windows High Contrast is on."
 			),
 		)
 		note.Wrap(self.scaleSize(500))
 		sHelper.addItem(note)
+		self.backgroundChoice.Bind(wx.EVT_CHOICE, self.onLookChanged)
+		self.accentChoice.Bind(wx.EVT_CHOICE, self.onLookChanged)
+		self.brightCheckBox.Bind(wx.EVT_CHECKBOX, self.onLookChanged)
+		self.outlineSlider.Bind(wx.EVT_SLIDER, self.onLookChanged)
+
+	def _chosenLook(self):
+		return (
+			themes.BACKGROUNDS[max(0, self.backgroundChoice.GetSelection())].key,
+			themes.ACCENTS[max(0, self.accentChoice.GetSelection())].key,
+			self.brightCheckBox.IsChecked(),
+			int(self.outlineSlider.GetValue()),
+		)
+
+	def _cancelPreview(self):
+		if self._preview:
+			self._preview.Stop()
+			self._preview = None
+
+	def onLookChanged(self, evt):
+		evt.Skip()
+		self._cancelPreview()
+		# plain values only: a timer that outlives the dialog must not hold on to it
+		self._preview = wx.CallLater(self.PREVIEW_DELAY_MS, setLook, *self._chosenLook())
+
+	def onDiscard(self):
+		"""Cancel: the saved look again."""
+		self._cancelPreview()
+		applyLook()
 
 	def onSave(self):
-		config.conf[CONF_SECTION]["restartWhenOff"] = self.restartCheckBox.IsChecked()
-		config.conf[CONF_SECTION]["thickOutlines"] = self.thickCheckBox.IsChecked()
-		config.conf[CONF_SECTION]["blackBackgrounds"] = self.blackCheckBox.IsChecked()
-		applyRingWidth()
-		applyBackground()
+		self._cancelPreview()
+		section = config.conf[CONF_SECTION]
+		section["restartWhenOff"] = self.restartCheckBox.IsChecked()
+		background, accent, brightContrast, outlineWidth = self._chosenLook()
+		section["background"] = background
+		section["accent"] = accent
+		section["brightContrast"] = brightContrast
+		section["outlineWidth"] = outlineWidth
+		applyLook()
 		setMode("dark" if self.enabledCheckBox.IsChecked() else "off")
 
 
@@ -169,8 +266,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		except Exception:
 			log.exception("darkMode: could not add the menu item")
 		try:
-			applyRingWidth(repaint=False)
-			applyBackground(retheme=False)
+			migrateConfig()
+			applyLook(live=False)
 			self.engine.start()
 		except Exception:
 			log.exception("darkMode: engine failed to start")
@@ -243,8 +340,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		super().terminate()
 
 	def onConfigChanged(self, **kwargs):
-		applyRingWidth()
-		applyBackground()
+		applyLook()
 		self.engine.refresh()
 
 	@script(
