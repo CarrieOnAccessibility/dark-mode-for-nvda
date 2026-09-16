@@ -52,7 +52,8 @@ FIELD_BG = wx.Colour(0x2B, 0x2B, 0x2B)  # text fields, dropdowns, spin boxes: th
 FG = wx.Colour(0xFF, 0xFF, 0xFF)
 _background = None  # the current themes.Background
 _accent = None  # the current themes.Accent
-_brightContrast = False  # selected rows in the accent colour itself, with black text
+_brightRows = False  # selected rows in the accent colour itself, with black text
+_brightControls = False  # checked boxes, radio dots and slider thumbs likewise
 
 # --- Win32 plumbing ---------------------------------------------------------
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -691,27 +692,27 @@ def setBackground(key: str) -> bool:
 	return True
 
 
-def setAccent(key: str, brightContrast: bool = False) -> bool:
-	"""Switch focus rings, the menu outline, selected list rows and slider thumbs to the named
-	themes.Accent; with brightContrast the selected row is the accent colour itself with black
-	text. Returns True if anything changed; the painters read these at paint time, so the
-	caller only repaints."""
-	global _accent, _brightContrast
+def setAccent(key: str, brightRows: bool = False, brightControls: bool = False) -> bool:
+	"""Switch focus rings, the menu outline, selected list rows, check boxes and slider thumbs to
+	the named themes.Accent. brightRows: selected rows in the accent colour itself with black
+	text; brightControls: checked boxes, radio dots and slider thumbs likewise. Returns True if
+	anything changed; the painters read these at paint time, so the caller only repaints."""
+	global _accent, _brightRows, _brightControls
 	want = themes.accent(key)
-	brightContrast = bool(brightContrast)
-	if _accent is not None and want.key == _accent.key and brightContrast == _brightContrast:
+	brightRows, brightControls = bool(brightRows), bool(brightControls)
+	if _accent is not None and want.key == _accent.key and (brightRows, brightControls) == (_brightRows, _brightControls):
 		return False
 	_accent = want
-	_brightContrast = brightContrast
+	_brightRows, _brightControls = brightRows, brightControls
 	# Tiers of the one accent. Bright (focus): the rings, always. Dark (selection): selected
 	# rows in lists and dropdowns. Mid: the dark tier brightened, for checked boxes and radio
 	# dots, with a white mark. Thumb: halfway between dark and bright, for slider thumbs.
-	# Bright contrast puts rows, boxes and thumbs all on the bright tier, with black marks.
+	# The Bright contrast settings put rows, or boxes and thumbs, on the bright tier with black marks.
 	native.FOCUS = want.focus
 	native.LIST_HOT_BASE = want.hoverBase or want.focus
-	native.LIST_SEL_BG = want.focus if brightContrast else want.selection
-	native.LIST_SEL_TEXT = themes.BLACK if brightContrast else themes.WHITE
-	if brightContrast:
+	native.LIST_SEL_BG = want.focus if brightRows else want.selection
+	native.LIST_SEL_TEXT = themes.BLACK if brightRows else themes.WHITE
+	if brightControls:
 		fill, hot, pressed, mark = want.focus, want.hot, want.pressed, themes.BLACK
 		thumb, thumbHot, thumbPressed = want.focus, want.hot, want.pressed
 	else:
@@ -735,8 +736,12 @@ def currentAccent() -> str:
 	return _accent.key if _accent else themes.DEFAULT_ACCENT
 
 
-def brightContrast() -> bool:
-	return _brightContrast
+def brightRows() -> bool:
+	return _brightRows
+
+
+def brightControls() -> bool:
+	return _brightControls
 
 
 # One source of truth: the defaults in themes.py, not the literals above or in native.py.
@@ -751,7 +756,7 @@ def repaintAllWindows():
 			native._RedrawWindow(tlw.GetHandle(), None, None, native.RDW_FRAME | native.RDW_INVALIDATE | native.RDW_ERASE | native.RDW_ALLCHILDREN)
 		except Exception:
 			log.debugWarning("darkMode: repaint failed", exc_info=True)
-	native.repaintSlidersNow()
+	native.refreshSliders()
 
 
 # --- Process-wide switches --------------------------------------------------

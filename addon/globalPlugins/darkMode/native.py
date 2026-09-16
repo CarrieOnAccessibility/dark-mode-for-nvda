@@ -1298,6 +1298,8 @@ def _drawTitleSeparator(hwnd, hdc):
 
 
 def _drawSliderChannel(hwnd, hdc, rc):
+	if TRACE_SLIDER:
+		log.info("darkMode slider: CHANNEL draw hwnd %#x rect %s" % (hwnd, (rc.left, rc.top, rc.right, rc.bottom)))
 	dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
 	radius = max(2, round(2 * dpi / 96))
 	brush = _CreateSolidBrush(colorref(SLIDER_TRACK))
@@ -1316,9 +1318,14 @@ TBS_TOP = 0x0004  # (also TBS_LEFT for vertical bars)
 TBS_BOTH = 0x0008
 
 
+TRACE_SLIDER = False  # dev: log every thumb/channel custom draw
+
+
 def _drawSliderThumb(hwnd, hdc, rc, state):
 	"""The thumb in Windows' own pointer shape (a block tapering to a point on the tick side),
 	in Windows' blue; accent blue when hovered (Windows drew it black), grey when disabled."""
+	if TRACE_SLIDER:
+		log.info("darkMode slider: THUMB draw hwnd %#x state %#x rect %s colour %s" % (hwnd, state, (rc.left, rc.top, rc.right, rc.bottom), SLIDER_THUMB))
 	if not _IsWindowEnabled(hwnd) or state & CDIS_DISABLED:
 		colour = SLIDER_THUMB_DISABLED
 	elif state & CDIS_SELECTED:
@@ -2247,6 +2254,8 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				return res
 		elif idSubclass == ID_SLIDER:
 			if msg == WM_PAINT:
+				if TRACE_SLIDER:
+					log.info("darkMode slider: WM_PAINT hwnd %#x" % hwnd)
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 				_paintFocusOverlay(hwnd)
 				return res
@@ -2761,12 +2770,26 @@ def applyListBox(hwnd, dark: bool):
 		_InvalidateRect(hwnd, None, False)
 
 
-def repaintSlidersNow():
-	"""Sliders paint their thumb through custom draw; after a colour change, have them do it
-	now rather than at the next idle moment."""
+def refreshSliders():
+	"""After a colour change. A themed trackbar answers an ordinary WM_PAINT by blitting a
+	cached image and only draws afresh (our custom draw included) after a state or theme
+	change, so each one is told its theme changed; its next paint asks us for the thumb again."""
 	for hwnd in list(_sliders):
 		if _IsWindow(hwnd):
-			_RedrawWindow(hwnd, None, None, RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW)
+			_SendMessageW(hwnd, WM_THEMECHANGED, 0, 0)
+			_InvalidateRect(hwnd, None, False)
+
+
+def repaintFocusRing():
+	"""After the ring width changed: only the focused control and its ring need painting (a
+	full repaint of every window here made dragging the thickness slider sluggish)."""
+	_haloRefresh()
+	focus = _GetFocus()
+	if focus and _IsWindow(focus):
+		_InvalidateRect(focus, None, False)
+		parent = _user32.GetParent(focus)
+		if parent and _className(parent) == "ComboBox":
+			_InvalidateRect(parent, None, False)
 
 
 def setRingWidth(pixels: int) -> bool:
@@ -2775,8 +2798,6 @@ def setRingWidth(pixels: int) -> bool:
 	want = max(1, min(RING_MAX, int(pixels)))
 	changed = want != RING
 	RING = want
-	if changed:
-		_haloRefresh()  # the ring around the focused control has a new size
 	return changed
 
 

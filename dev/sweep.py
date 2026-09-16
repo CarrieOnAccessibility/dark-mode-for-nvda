@@ -3,7 +3,7 @@
 # dialog the dev hook can open, and the menus. Flags dark text on dark backgrounds and
 # light backgrounds. Needs NVDA running with the dev build.
 #
-#   python dev/sweep.py [--background <key>] [--accent <key>] [--bright on|off] [--outline 1..4]
+#   python dev/sweep.py [--background <key>] [--accent <key>] [--bright-rows on|off] [--bright-controls on|off] [--outline 1..4]
 #
 # Each given setting is switched live first (keys as in themes.py) and left in place
 # afterwards; without them the sweep runs under whatever is set.
@@ -19,7 +19,8 @@ EXEC = os.path.join(HERE, "nvda_exec.py")
 ap = argparse.ArgumentParser()
 ap.add_argument("--background")
 ap.add_argument("--accent")
-ap.add_argument("--bright", choices=("on", "off"))
+ap.add_argument("--bright-rows", dest="brightRows", choices=("on", "off"))
+ap.add_argument("--bright-controls", dest="brightControls", choices=("on", "off"))
 ap.add_argument("--outline", type=int, choices=(1, 2, 3, 4))
 args = ap.parse_args()
 
@@ -47,7 +48,7 @@ def audit(title):
 problems = {}
 
 # --- theme under test ----------------------------------------------------------
-for name, key in (("background", "background"), ("accent", "accent"), ("bright", "brightContrast"), ("outline", "outlineWidth")):
+for name, key in (("background", "background"), ("accent", "accent"), ("brightRows", "brightRows"), ("brightControls", "brightControls"), ("outline", "outlineWidth")):
 	value = getattr(args, name)
 	if value:
 		section("Setting: %s = %s" % (key, value))
@@ -163,7 +164,7 @@ for name, keys in (("sweep-menu-main", ""), ("sweep-menu-prefs", "down,right"), 
 		problems["Menu: " + name] = ["light menu"]
 
 section("SUMMARY")
-print("  background=%s accent=%s bright=%s outline=%s" % (args.background or "(as set)", args.accent or "(as set)", args.bright or "(as set)", args.outline or "(as set)"))
+print("  background=%s accent=%s brightRows=%s brightControls=%s outline=%s" % (args.background or "(as set)", args.accent or "(as set)", args.brightRows or "(as set)", args.brightControls or "(as set)", args.outline or "(as set)"))
 if not problems:
 	print("  nothing flagged")
 for k, v in problems.items():

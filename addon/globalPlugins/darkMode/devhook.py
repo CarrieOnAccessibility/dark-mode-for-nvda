@@ -397,12 +397,12 @@ class DevHook:
 
 	def v_setting(self, name, value="on"):
 		"""Set one of the add-on's look settings live, as OK in the panel would: background <key>,
-		accent <key> (keys as in themes.py), brightContrast on|off, outlineWidth 1..4."""
+		accent <key> (keys as in themes.py), brightRows on|off, brightControls on|off, outlineWidth 1..4."""
 		import config
 
 		import globalPlugins.darkMode as pkg
 
-		if name == "brightContrast":
+		if name in ("brightRows", "brightControls"):
 			config.conf[pkg.CONF_SECTION][name] = value == "on"
 		elif name == "outlineWidth":
 			config.conf[pkg.CONF_SECTION][name] = int(value)
@@ -414,7 +414,93 @@ class DevHook:
 		pkg.applyLook()
 		from . import native, theming
 
-		print(name, "->", config.conf[pkg.CONF_SECTION][name], "| BG", theming_bg(), "| background", theming.currentBackground(), "accent", theming.currentAccent(), "bright", theming.brightContrast(), "ring", native.RING)
+		print(name, "->", config.conf[pkg.CONF_SECTION][name], "| BG", theming_bg(), "| background", theming.currentBackground(), "accent", theming.currentAccent(), "bright rows/controls", theming.brightRows(), theming.brightControls(), "ring", native.RING)
+
+	def v_slidertrace(self, titlePart, accent="yellow"):
+		"""Switch the accent as OK would, then read the first slider's thumb colour from its own
+		surface at intervals, into the NVDA log: how long the thumb takes to take the new colour."""
+		import time
+
+		import config
+		from logHandler import log
+
+		import globalPlugins.darkMode as pkg
+		from . import native
+
+		w = _findTLW(titlePart)
+		sl = next((c for c in _walk(w) if isinstance(c, wx.Slider) and c.IsShownOnScreen()), None) if w else None
+		if not sl:
+			print("no slider in", repr(titlePart))
+			return
+		h = sl.GetHandle()  # the hwnd only: this closure outlives the verb
+		rc = native.RECT()
+		native._SendMessageW(h, 0x0400 + 25, 0, ctypes.addressof(rc))  # TBM_GETTHUMBRECT
+		cx, cy = (rc.left + rc.right) // 2, (rc.top + rc.bottom) // 2
+		_gdi32 = ctypes.windll.gdi32
+		_gdi32.GetPixel.restype = ctypes.c_uint32
+
+		def sample():
+			hdc = native._GetDC(h)
+			try:
+				v = _gdi32.GetPixel(ctypes.c_void_p(hdc), cx, cy)
+			finally:
+				native._ReleaseDC(h, hdc)
+			return (v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF)
+
+		native.TRACE_SLIDER = True
+		t0 = time.perf_counter()
+		before = sample()
+		config.conf[pkg.CONF_SECTION]["accent"] = accent
+		pkg.applyLook()
+		after = sample()
+		log.info("darkMode slidertrace: before %s, right after applyLook %s (%.1f ms), expected %s" % (before, after, (time.perf_counter() - t0) * 1000, native.SLIDER_THUMB))
+		for ms in (10, 30, 60, 120, 250, 500, 1000, 2000):
+			def report(ms=ms):
+				log.info("darkMode slidertrace: +%d ms thumb %s" % (ms, sample()))
+			wx.CallLater(ms, report)
+
+		def poke(tag, fn):
+			def run():
+				fn()
+				log.info("darkMode slidertrace: after %s thumb %s" % (tag, sample()))
+			return run
+
+		parent = native._user32.GetParent(h)
+		thumbRect = native.RECT(rc.left, rc.top, rc.right, rc.bottom)
+		wx.CallLater(2200, poke("InvalidateRect(slider, erase=False)+UpdateWindow", lambda: (native._InvalidateRect(h, None, False), native._user32.UpdateWindow(h))))
+		wx.CallLater(2400, poke("InvalidateRect(thumb rect, erase=True)+UpdateWindow", lambda: (native._InvalidateRect(h, ctypes.byref(thumbRect), True), native._user32.UpdateWindow(h))))
+		wx.CallLater(2600, poke("RedrawWindow(slider, INVALIDATE|ERASE|UPDATENOW)", lambda: native._RedrawWindow(h, None, None, native.RDW_INVALIDATE | native.RDW_ERASE | native.RDW_UPDATENOW)))
+		wx.CallLater(2800, poke("WM_THEMECHANGED", lambda: native._SendMessageW(h, 0x031A, 0, 0)))
+		wx.CallLater(3000, poke("RedrawWindow(parent, INVALIDATE|ERASE|ALLCHILDREN|UPDATENOW)", lambda: native._RedrawWindow(parent, None, None, native.RDW_INVALIDATE | native.RDW_ERASE | native.RDW_ALLCHILDREN | native.RDW_UPDATENOW)))
+		wx.CallLater(3200, poke("WM_MOUSEMOVE over thumb", lambda: native._SendMessageW(h, 0x0200, 0, (cy << 16) | cx)))
+		wx.CallLater(3400, poke("WM_MOUSELEAVE", lambda: native._SendMessageW(h, 0x02A3, 0, 0)))
+
+		def done():
+			native.TRACE_SLIDER = False
+
+		wx.CallLater(3600, done)
+		print("tracing; read the NVDA log")
+
+	def v_ringtime(self):
+		"""How long one live change of the outline thickness costs (what a drag of the slider pays per step)."""
+		import time
+
+		import config
+		from logHandler import log
+
+		import globalPlugins.darkMode as pkg
+
+		c = config.conf[pkg.CONF_SECTION]
+		out = []
+		for width in (2, 3, 4, 1, c["outlineWidth"]):
+			t0 = time.perf_counter()
+			pkg.setLook(c["background"], c["accent"], c["brightRows"], c["brightControls"], width)
+			out.append("%d: %.1f ms" % (width, (time.perf_counter() - t0) * 1000))
+		t0 = time.perf_counter()
+		pkg.setLook(c["background"], "blue" if c["accent"] != "blue" else "red", c["brightRows"], c["brightControls"], c["outlineWidth"])
+		accentMs = (time.perf_counter() - t0) * 1000
+		pkg.applyLook()
+		print("ring steps:", ", ".join(out), "| an accent change: %.1f ms (both before the paints themselves)" % accentMs)
 
 	def v_showtrace(self, state="on"):
 		"""Log the show-time paint of top-level windows (WINDOWPOSCHANGED flags, how long the synchronous paint took)."""

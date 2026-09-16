@@ -34,7 +34,8 @@ except Exception:  # not running from an installed add-on (e.g. scratchpad)
 
 CONF_SECTION = "darkMode"
 # The defaults of the look settings, also what the panel's "Reset to defaults" button sets.
-DEFAULT_BRIGHT_CONTRAST = False
+DEFAULT_BRIGHT_ROWS = False
+DEFAULT_BRIGHT_CONTROLS = False
 DEFAULT_OUTLINE_WIDTH = 1
 DEFAULT_RESTART_WHEN_OFF = True
 config.conf.spec[CONF_SECTION] = {
@@ -42,7 +43,10 @@ config.conf.spec[CONF_SECTION] = {
 	"restartWhenOff": "boolean(default=%s)" % DEFAULT_RESTART_WHEN_OFF,
 	"background": themes.optionSpec(themes.BACKGROUNDS, themes.DEFAULT_BACKGROUND),
 	"accent": themes.optionSpec(themes.ACCENTS, themes.DEFAULT_ACCENT),
-	"brightContrast": "boolean(default=%s)" % DEFAULT_BRIGHT_CONTRAST,
+	"brightRows": "boolean(default=%s)" % DEFAULT_BRIGHT_ROWS,
+	"brightControls": "boolean(default=%s)" % DEFAULT_BRIGHT_CONTROLS,
+	# One "Bright contrast" check box for a day (dev builds only); split in two, migrated once.
+	"brightContrast": "boolean(default=False)",
 	"outlineWidth": "integer(min=1, max=%d, default=%d)" % (native.RING_MAX, DEFAULT_OUTLINE_WIDTH),
 	# Up to 0.9.3 the background was a "Use black backgrounds" check box and the outline a
 	# "Thicker focus outlines" one. Kept so the old values can still be read; migrateConfig()
@@ -69,30 +73,37 @@ def migrateConfig():
 		section["outlineWidth"] = 2
 		section["thickOutlines"] = False
 		changed = True
+	if section["brightContrast"]:
+		section["brightRows"] = section["brightControls"] = True
+		section["brightContrast"] = False
+		changed = True
 	if changed:
 		saveConfig()
 
 
-def setLook(background: str, accent: str, brightContrast: bool, outlineWidth: int, live: bool = True):
+def setLook(background: str, accent: str, brightRows: bool, brightControls: bool, outlineWidth: int, live: bool = True):
 	"""Push a set of look values into the engine. With live, open windows follow: a new
-	background re-themes them (wx holds the old colours); an accent, bright contrast or outline
-	change only needs a repaint, the painters read those at paint time."""
+	background re-themes them (wx holds the old colours); an accent or bright contrast change
+	only needs a repaint, the painters read those at paint time; a new outline width only
+	touches the focused control's ring."""
 	backgroundChanged = theming.setBackground(background)
-	accentChanged = theming.setAccent(accent, brightContrast)
+	accentChanged = theming.setAccent(accent, brightRows, brightControls)
 	ringChanged = native.setRingWidth(outlineWidth)
 	plugin = GlobalPlugin.instance
 	if not (live and plugin and plugin.engine.active):
 		return
 	if backgroundChanged:
 		theming.themeAllWindows(True, force=True)
-	if backgroundChanged or accentChanged or ringChanged:
+	if backgroundChanged or accentChanged:
 		theming.repaintAllWindows()
+	elif ringChanged:
+		native.repaintFocusRing()
 
 
 def applyLook(live: bool = True):
 	"""The look as saved in the settings (after OK, Cancel, a profile switch, at start)."""
 	section = config.conf[CONF_SECTION]
-	setLook(section["background"], section["accent"], section["brightContrast"], section["outlineWidth"], live)
+	setLook(section["background"], section["accent"], section["brightRows"], section["brightControls"], section["outlineWidth"], live)
 
 
 def setMode(mode: str):
@@ -180,11 +191,16 @@ class DarkModeSettingsPanel(SettingsPanel):
 			choices=[entry.label for entry in themes.ACCENTS],
 		)
 		self.accentChoice.SetSelection(themes.index(themes.ACCENTS, section["accent"]))
-		self.brightCheckBox = sHelper.addItem(
+		self.brightRowsCheckBox = sHelper.addItem(
 			# Translators: label of the check box that paints selected list rows in the accent colour with black text.
-			wx.CheckBox(self, label=_("Bright &contrast: selected rows in the accent colour"))
+			wx.CheckBox(self, label=_("Bright contrast for &selected rows"))
 		)
-		self.brightCheckBox.SetValue(bool(section["brightContrast"]))
+		self.brightRowsCheckBox.SetValue(bool(section["brightRows"]))
+		self.brightControlsCheckBox = sHelper.addItem(
+			# Translators: label of the check box that paints checked check boxes and slider thumbs in the accent colour.
+			wx.CheckBox(self, label=_("Bright contrast for &checkboxes and slider handles"))
+		)
+		self.brightControlsCheckBox.SetValue(bool(section["brightControls"]))
 		self.outlineSlider = sHelper.addLabeledControl(
 			# Translators: label of the slider that sets how thick focus rings and the menu outline are, in pixels.
 			_("Focus outline &thickness:"),
@@ -212,7 +228,8 @@ class DarkModeSettingsPanel(SettingsPanel):
 		sHelper.addItem(note)
 		self.backgroundChoice.Bind(wx.EVT_CHOICE, self.onLookChanged)
 		self.accentChoice.Bind(wx.EVT_CHOICE, self.onLookChanged)
-		self.brightCheckBox.Bind(wx.EVT_CHECKBOX, self.onLookChanged)
+		self.brightRowsCheckBox.Bind(wx.EVT_CHECKBOX, self.onLookChanged)
+		self.brightControlsCheckBox.Bind(wx.EVT_CHECKBOX, self.onLookChanged)
 		self.outlineSlider.Bind(wx.EVT_SLIDER, self.onLookChanged)
 		self.resetButton.Bind(wx.EVT_BUTTON, self.onReset)
 
@@ -220,7 +237,8 @@ class DarkModeSettingsPanel(SettingsPanel):
 		return (
 			themes.BACKGROUNDS[max(0, self.backgroundChoice.GetSelection())].key,
 			themes.ACCENTS[max(0, self.accentChoice.GetSelection())].key,
-			self.brightCheckBox.IsChecked(),
+			self.brightRowsCheckBox.IsChecked(),
+			self.brightControlsCheckBox.IsChecked(),
 			int(self.outlineSlider.GetValue()),
 		)
 
@@ -240,7 +258,8 @@ class DarkModeSettingsPanel(SettingsPanel):
 		(OK keeps it, Cancel still puts the saved look back)."""
 		self.backgroundChoice.SetSelection(themes.index(themes.BACKGROUNDS, themes.DEFAULT_BACKGROUND))
 		self.accentChoice.SetSelection(themes.index(themes.ACCENTS, themes.DEFAULT_ACCENT))
-		self.brightCheckBox.SetValue(DEFAULT_BRIGHT_CONTRAST)
+		self.brightRowsCheckBox.SetValue(DEFAULT_BRIGHT_ROWS)
+		self.brightControlsCheckBox.SetValue(DEFAULT_BRIGHT_CONTROLS)
 		self.outlineSlider.SetValue(DEFAULT_OUTLINE_WIDTH)
 		self.restartCheckBox.SetValue(DEFAULT_RESTART_WHEN_OFF)
 		self._cancelPreview()
@@ -255,10 +274,11 @@ class DarkModeSettingsPanel(SettingsPanel):
 		self._cancelPreview()
 		section = config.conf[CONF_SECTION]
 		section["restartWhenOff"] = self.restartCheckBox.IsChecked()
-		background, accent, brightContrast, outlineWidth = self._chosenLook()
+		background, accent, brightRows, brightControls, outlineWidth = self._chosenLook()
 		section["background"] = background
 		section["accent"] = accent
-		section["brightContrast"] = brightContrast
+		section["brightRows"] = brightRows
+		section["brightControls"] = brightControls
 		section["outlineWidth"] = outlineWidth
 		applyLook()
 		setMode("dark" if self.enabledCheckBox.IsChecked() else "off")
