@@ -638,7 +638,7 @@ GLYPH = None
 GLYPH_HOT = None  # under the mouse
 GLYPH_PRESSED = None  # mouse button down
 GLYPH_MARK = (0xFF, 0xFF, 0xFF)  # the tick on a filled box, the dot in a filled radio: white on the selection colour, black on the accent (Bright contrast)
-CHECK_BORDER = (0xFF, 0xFF, 0xFF)  # the border of every check box and radio button, in every state
+CHECK_BORDER = (0xC8, 0xC8, 0xC8)  # the border of every check box and radio button, in every state: the same light grey as field frames
 CHECK_FACE = (0x2B, 0x2B, 0x2B)  # an unchecked box: the field grey
 CHECK_HOT_FACE = (0x3A, 0x3A, 0x3A)  # ...under the mouse
 CHECK_PRESSED_FACE = (0x50, 0x50, 0x50)  # ...mouse button down
@@ -1591,7 +1591,7 @@ def _drawCheckGlyph(hdc, box, state, hot=False, pushed=False, disabled=False):
 	border, fill, mark = _glyphColours(state, hot, pushed, disabled)
 	size = box.right - box.left
 	radius = max(2, round(size / 5))
-	pen = _CreatePen(PS_SOLID, max(1, round(size / 14)), colorref(border))
+	pen = _CreatePen(PS_SOLID, max(1, round(size / 24)), colorref(border))  # 1 px up to a ~36 px box
 	brush = _CreateSolidBrush(colorref(fill))
 	oldPen = _SelectObject(hdc, pen)
 	oldBrush = _SelectObject(hdc, brush)
@@ -1615,7 +1615,7 @@ def _drawRadioGlyph(hdc, box, checked, hot=False, pushed=False, disabled=False):
 	called when GLYPH is set."""
 	border, fill, mark = _glyphColours(BST_CHECKED if checked else 0, hot, pushed, disabled)
 	size = box.right - box.left
-	steps = [(border, fill, max(1, round(size / 14)), 0)]
+	steps = [(border, fill, max(1, round(size / 24)), 0)]
 	if checked:
 		steps.append((mark, mark, 1, max(2, round(size * 0.28) - CHECK_MARK_BOLD)))
 	for penColour, brushColour, width, inset in steps:
