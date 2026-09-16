@@ -64,7 +64,8 @@ def _background(key, label, bg, listBg=None, textAreasFollow=False):
 # selection: the selected row of a focused list, with white text.
 # hot / pressed: the slider thumb and the checked glyphs under the mouse, and while pressed.
 # windowsGlyphs: leave check boxes and radio buttons to Windows, which draws them in its own
-#   accent colour (true for Blue, which is that colour).
+#   accent colour. Off for every accent (her call, 2026-09-16: Blue too, so they all match);
+#   kept so an accent can opt back into Windows' glyphs with one word.
 Accent = namedtuple("Accent", "key label focus selection hot pressed windowsGlyphs")
 
 
@@ -99,7 +100,7 @@ ACCENTS = (
 	# Windows 11's dark-mode accent blue for the rings; the selected row sits between the
 	# settings sidebar's dark blue and Windows' bright accent. Hover/pressed as before 0.9.4.
 	# Translators: an accent colour choice in the Dark Mode settings.
-	_accent("blue", _("Blue"), (0x60, 0xCD, 0xFF), (0x1E, 0x5A, 0x8C), (0x00, 0x78, 0xD7), (0x00, 0x5F, 0xB8), windowsGlyphs=True),
+	_accent("blue", _("Blue"), (0x60, 0xCD, 0xFF), (0x1E, 0x5A, 0x8C), (0x00, 0x78, 0xD7), (0x00, 0x5F, 0xB8)),
 	# Translators: an accent colour choice in the Dark Mode settings.
 	_accent("red", _("Red"), (0xFF, 0x8A, 0x80), (0x8C, 0x1E, 0x1E)),
 	# Translators: an accent colour choice in the Dark Mode settings.

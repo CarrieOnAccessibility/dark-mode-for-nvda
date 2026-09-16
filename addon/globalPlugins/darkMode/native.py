@@ -626,7 +626,7 @@ LIST_SEL_UNFOCUSED_BG = (0x50, 0x50, 0x50)  # selected row while the list does n
 LIST_SEL_BG = (0x1E, 0x5A, 0x8C)  # selected row (Accent setting); blue sits between the sidebar's dark blue and Windows' bright accent (white text 7.3:1)
 LIST_SEL_TEXT = (0xFF, 0xFF, 0xFF)  # (Accent setting: black with Bright contrast)
 # Check box ticks and radio dots (Accent setting). None leaves Windows' own glyphs, drawn in
-# Windows' accent colour (the Blue accent); an RGB paints the checked glyph in that colour.
+# Windows' accent colour (no accent does, today); an RGB paints the checked glyph in that colour.
 GLYPH = None
 GLYPH_HOT = None  # under the mouse
 GLYPH_PRESSED = None  # mouse button down
