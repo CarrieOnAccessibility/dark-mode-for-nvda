@@ -58,12 +58,12 @@ def _background(key, label, bg, listBg=None, textAreasFollow=False):
 	return Background(key, label, bg, _step(bg, 11) if listBg is None else listBg, textAreasFollow)
 
 
-# focus: focus rings, the menu outline, the tab focus line, a slider's thumb at rest; with
-#   Bright contrast also the selected row and the checked glyph of check boxes and radio
-#   buttons (then with black text / a black mark).
-# selection: the selected row of a focused list and the checked glyph of check boxes and
-#   radio buttons, with white text / a white mark.
-# hot / pressed: the slider thumb and the checked glyphs under the mouse, and while pressed.
+# focus: the bright tier: focus rings, the menu outline, the tab focus line; with Bright
+#   contrast also selected rows, checked boxes, radio dots and slider thumbs (black marks).
+# selection: the dark tier: the selected row of a focused list, with white text. Brightened
+#   (native.ACCENT_MID_BRIGHTNESS) it is the middle tier: checked boxes, radio dots and
+#   slider thumbs, with white marks.
+# hot / pressed: the bright-tier thumb and glyphs under the mouse, and while pressed.
 # windowsGlyphs: leave check boxes and radio buttons to Windows, which draws them in its own
 #   accent colour. Off for every accent (her call, 2026-09-16: Blue too, so they all match);
 #   kept so an accent can opt back into Windows' glyphs with one word.

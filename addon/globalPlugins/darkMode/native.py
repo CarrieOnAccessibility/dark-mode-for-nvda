@@ -629,8 +629,8 @@ PARENT_BG = (0x20, 0x20, 0x20)  # dialog background (Background setting), shows 
 GRIP_DOT = (0x62, 0x62, 0x62)  # size grip dots: visible if you look for them, nothing more
 LAYOUT_LINE = (0x8C, 0x8C, 0x8C)  # structure, not controls: panel frames, group boxes, separators, under the title bar
 SLIDER_TRACK = (0x8C, 0x8C, 0x8C)  # the groove a slider thumb runs in
-SLIDER_THUMB = (0x60, 0xCD, 0xFF)  # the thumb (Accent setting): the same colour as the focus rings
-SLIDER_THUMB_HOT = (0x00, 0x78, 0xD7)  # hovered (Accent setting): a darker shade (Windows painted it black)
+SLIDER_THUMB = (0x60, 0xCD, 0xFF)  # the thumb (Accent setting): the accent's middle tier, or the ring colour with Bright contrast
+SLIDER_THUMB_HOT = (0x00, 0x78, 0xD7)  # hovered (Accent setting)
 SLIDER_THUMB_PRESSED = (0x00, 0x5F, 0xB8)  # (Accent setting)
 SLIDER_THUMB_DISABLED = (0x70, 0x70, 0x70)
 MENUBAR_BG = (0x20, 0x20, 0x20)  # menu bar strip (log viewer, Python console): same as the window (Background setting)
@@ -667,7 +667,10 @@ CHECK_HOT_FACE = (0x3A, 0x3A, 0x3A)  # ...under the mouse
 CHECK_PRESSED_FACE = (0x50, 0x50, 0x50)  # ...mouse button down
 CHECK_DISABLED_FILL = (0x50, 0x50, 0x50)  # a disabled checked box or radio
 CHECK_MARK_BOLD = 1  # extra pixels the tick and the dot are thickened by
-CHECK_FILL_BRIGHTNESS = 1.25  # a checked box (without Bright contrast) is the selected-row colour this much brighter, like CSS brightness()
+# The accent's middle tier (without Bright contrast): checked boxes, radio dots and slider
+# thumbs are the selected-row colour this much brighter (CSS brightness()). Rings stay the
+# bright tier, rows the dark one. 1.3 is the most that keeps a white tick at 4.5:1 on every accent.
+ACCENT_MID_BRIGHTNESS = 1.3
 RING = 1  # focus rings and the menu outline, in pixels (the "Focus outline thickness" slider, 1 to RING_MAX)
 RING_MAX = 4
 # The gap between a focused control and its ring, which sits OUTSIDE the control (like CSS

@@ -703,25 +703,23 @@ def setAccent(key: str, brightContrast: bool = False) -> bool:
 		return False
 	_accent = want
 	_brightContrast = brightContrast
+	# Three tiers of the accent. Bright (focus): the rings, always. Dark (selection): selected
+	# rows in lists and dropdowns. Mid: the dark tier brightened, for checked boxes, radio dots
+	# and slider thumbs, with a white mark. Bright contrast puts rows, boxes and thumbs all on
+	# the bright tier, with black marks.
 	native.FOCUS = want.focus
 	native.LIST_SEL_BG = want.focus if brightContrast else want.selection
 	native.LIST_SEL_TEXT = themes.BLACK if brightContrast else themes.WHITE
-	native.SLIDER_THUMB = want.focus
-	native.SLIDER_THUMB_HOT = want.hot
-	native.SLIDER_THUMB_PRESSED = want.pressed
-	# Check box ticks and radio dots: a white mark on the selected-row colour, or with Bright
-	# contrast a black mark on the accent itself, the same pairing as the selected rows.
+	if brightContrast:
+		fill, hot, pressed, mark = want.focus, want.hot, want.pressed, themes.BLACK
+	else:
+		fill = native.brighten(want.selection, native.ACCENT_MID_BRIGHTNESS)
+		hot, pressed, mark = themes._step(fill, 24), themes._step(fill, 40), themes.WHITE  # a dark fill brightens under the mouse
+	native.SLIDER_THUMB, native.SLIDER_THUMB_HOT, native.SLIDER_THUMB_PRESSED = fill, hot, pressed
 	if want.windowsGlyphs:
 		native.GLYPH = native.GLYPH_HOT = native.GLYPH_PRESSED = None
-	elif brightContrast:
-		native.GLYPH, native.GLYPH_HOT, native.GLYPH_PRESSED = want.focus, want.hot, want.pressed
-		native.GLYPH_MARK = themes.BLACK
 	else:
-		fill = native.brighten(want.selection, native.CHECK_FILL_BRIGHTNESS)
-		native.GLYPH = fill
-		native.GLYPH_HOT = themes._step(fill, 24)  # a dark fill brightens under the mouse
-		native.GLYPH_PRESSED = themes._step(fill, 40)
-		native.GLYPH_MARK = themes.WHITE
+		native.GLYPH, native.GLYPH_HOT, native.GLYPH_PRESSED, native.GLYPH_MARK = fill, hot, pressed, mark
 	return True
 
 
