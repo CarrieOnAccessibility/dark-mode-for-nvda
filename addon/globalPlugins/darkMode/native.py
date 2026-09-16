@@ -669,8 +669,8 @@ CHECK_DISABLED_FILL = (0x50, 0x50, 0x50)  # a disabled checked box or radio
 CHECK_MARK_BOLD = 1  # extra pixels the tick and the dot are thickened by
 # The accent's middle tier (without Bright contrast): checked boxes, radio dots and slider
 # thumbs are the selected-row colour this much brighter (CSS brightness()). Rings stay the
-# bright tier, rows the dark one. 1.3 is the most that keeps a white tick at 4.5:1 on every accent.
-ACCENT_MID_BRIGHTNESS = 1.3
+# bright tier, rows the dark one. At 1.4 the white tick still clears 3:1 (a graphic, not text) on every accent.
+ACCENT_MID_BRIGHTNESS = 1.4
 RING = 1  # focus rings and the menu outline, in pixels (the "Focus outline thickness" slider, 1 to RING_MAX)
 RING_MAX = 4
 # The gap between a focused control and its ring, which sits OUTSIDE the control (like CSS
