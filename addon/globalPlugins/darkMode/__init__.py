@@ -36,7 +36,7 @@ CONF_SECTION = "darkMode"
 # The defaults of the look settings, also what the panel's "Reset to defaults" button sets.
 DEFAULT_BRIGHT_ROWS = False
 DEFAULT_BRIGHT_CONTROLS = False
-DEFAULT_OUTLINE_WIDTH = 1
+DEFAULT_OUTLINE_WIDTH = 2
 DEFAULT_RESTART_WHEN_OFF = True
 config.conf.spec[CONF_SECTION] = {
 	"mode": "option('dark', 'off', default='dark')",
@@ -215,7 +215,7 @@ class DarkModeSettingsPanel(SettingsPanel):
 		)
 		self.restartCheckBox.SetValue(bool(section["restartWhenOff"]))
 		# Translators: label of the button that puts every Dark Mode setting but the on/off switch back to its default.
-		self.resetButton = sHelper.addItem(wx.Button(self, label=_("Reset to &defaults")))
+		self.resetButton = sHelper.addItem(wx.Button(self, label=_("Reset to &Dark Mode defaults")))
 		note = wx.StaticText(
 			self,
 			# Translators: explanatory text shown in the Dark Mode settings category.
