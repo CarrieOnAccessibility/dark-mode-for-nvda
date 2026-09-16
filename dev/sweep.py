@@ -3,7 +3,7 @@
 # dialog the dev hook can open, and the menus. Flags dark text on dark backgrounds and
 # light backgrounds. Needs NVDA running with the dev build.
 #
-#   python dev/sweep.py [--background <key>] [--accent <key>] [--bright-rows on|off] [--bright-controls on|off] [--outline 1..4]
+#   python dev/sweep.py [--background <key>] [--accent <key>] [--bright-rows on|off] [--bright-controls on|off] [--outline 1..5]
 #
 # Each given setting is switched live first (keys as in themes.py) and left in place
 # afterwards; without them the sweep runs under whatever is set.
@@ -21,7 +21,7 @@ ap.add_argument("--background")
 ap.add_argument("--accent")
 ap.add_argument("--bright-rows", dest="brightRows", choices=("on", "off"))
 ap.add_argument("--bright-controls", dest="brightControls", choices=("on", "off"))
-ap.add_argument("--outline", type=int, choices=(1, 2, 3, 4))
+ap.add_argument("--outline", type=int, choices=(1, 2, 3, 4, 5))
 args = ap.parse_args()
 
 

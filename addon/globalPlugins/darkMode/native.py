@@ -617,10 +617,12 @@ def brighten(rgb, factor):
 	return tuple(max(0, min(255, int(round(c * factor)))) for c in rgb)
 
 
-def _insetForRing(fillColour):
+def _insetForRing(fillColour, rc=None):
 	"""How far a selected row's fill stays inside its focus ring: a pixel of gap when the fill is
 	the ring's own colour (Bright contrast), so the ring reads the same as always; else none."""
-	return RING + 1 if tuple(fillColour) == tuple(FOCUS) else 0
+	if tuple(fillColour) != tuple(FOCUS):
+		return 0
+	return (_rowRing(rc) if rc is not None else RING) + 1
 
 
 def _deflate(rc, n):
@@ -681,7 +683,7 @@ CHECK_MARK_BOLD = 1  # extra pixels the tick and the dot are thickened by
 # bright tier, rows the dark one. At 1.4 the white tick still clears 3:1 (a graphic, not text) on every accent.
 ACCENT_MID_BRIGHTNESS = 1.4
 RING = 1  # focus rings and the menu outline, in pixels (the "Focus outline thickness" slider, 1 to RING_MAX)
-RING_MAX = 4
+RING_MAX = 5
 # Focus rings sit OUTSIDE the control, painted on its parent, so a field keeps its grey border
 # and a button its edge; RING_GAP is the space between the control and the ring (like CSS
 # outline-offset; 0 = touching). RING_OUTSIDE False = rings inside the control (the pre-0.9.4
@@ -763,6 +765,12 @@ def _paintFrame(hwnd):
 			_DeleteObject(inner)
 	finally:
 		_ReleaseDC(hwnd, hdc)
+
+
+def _rowRing(rc):
+	"""The ring width for a ring drawn INSIDE a row, a menu item or a tab: RING, but never more
+	than a sixth of the height, so thick rings on small screens leave the text readable."""
+	return max(1, min(RING, (rc.bottom - rc.top) // 6))
 
 
 def _drawRing(hdc, rc, rgb, width=None):
@@ -882,7 +890,7 @@ def _drawListViewRow(hwnd, hdc, item, hot=False):
 	else:
 		rowBg, rowText = (LIST_SEL_BG if focused else LIST_SEL_UNFOCUSED_BG), LIST_SEL_TEXT
 	if not hot and focused and _focusCuesVisible(hwnd) and item == _SendMessageW(hwnd, LVM_GETNEXTITEM, _NEG1, LVNI_FOCUSED):
-		fill = _deflate(fill, _insetForRing(rowBg))  # the row keeps its ring (drawn after the paint)
+		fill = _deflate(fill, _insetForRing(rowBg, fill))  # the row keeps its ring (drawn after the paint)
 	brush = _CreateSolidBrush(colorref(rowBg))
 	_FillRect(hdc, ctypes.byref(fill), brush)
 	_DeleteObject(brush)
@@ -940,7 +948,7 @@ def _paintFocusOverlay(hwnd):
 	if not hdc:
 		return
 	try:
-		_drawRing(hdc, rc, FOCUS)
+		_drawRing(hdc, rc, FOCUS, _rowRing(rc))
 	finally:
 		_ReleaseDC(hwnd, hdc)
 
@@ -983,7 +991,7 @@ def _overdrawListBox(hwnd):
 				break
 			selected = (_SendMessageW(hwnd, LB_GETSEL, i, 0) > 0) if multi else (i == cur)
 			if selected:
-				inset = _insetForRing(LIST_SEL_BG) if i == caret else 0
+				inset = _insetForRing(LIST_SEL_BG, rc) if i == caret else 0
 				if inset:
 					gap = _CreateSolidBrush(colorref(LIST_BG))
 					_FillRect(hdc, ctypes.byref(rc), gap)
@@ -995,7 +1003,7 @@ def _overdrawListBox(hwnd):
 					trc = RECT(rc.left + LISTBOX_TEXT_X, rc.top, rc.right, rc.bottom)
 					_DrawTextW(hdc, text, -1, ctypes.byref(trc), DT_LEFT | DT_SINGLELINE | DT_NOPREFIX)
 			if i == caret:
-				_drawRing(hdc, rc, FOCUS)
+				_drawRing(hdc, rc, FOCUS, _rowRing(rc))
 		_DeleteObject(brush)
 		if oldFont:
 			_SelectObject(hdc, oldFont)
@@ -1399,7 +1407,7 @@ def _paintCheckItem(dis):
 	else:
 		bg = colorref(LIST_BG)
 		fg = colorref(LIST_DISABLED_TEXT if disabled else LIST_TEXT)
-	inset = _insetForRing(LIST_SEL_BG) if (selected and hasFocus and dis.itemState & ODS_FOCUS) else 0
+	inset = _insetForRing(LIST_SEL_BG, rc) if (selected and hasFocus and dis.itemState & ODS_FOCUS) else 0
 	if inset:
 		gap = _CreateSolidBrush(colorref(LIST_BG))
 		_FillRect(hdc, ctypes.byref(rc), gap)
@@ -1442,7 +1450,7 @@ def _paintCheckItem(dis):
 	if oldFont:
 		_SelectObject(hdc, oldFont)
 	if dis.itemState & ODS_FOCUS and hasFocus:
-		_drawRing(hdc, rc, FOCUS)
+		_drawRing(hdc, rc, FOCUS, _rowRing(rc))
 	return True
 
 
@@ -1987,7 +1995,7 @@ def _drawTabs(hwnd, hdc):
 		_DeleteObject(pen)
 		_DeleteObject(brush)
 		if isSel and focused and not (uistate & UISF_HIDEFOCUS):
-			pen = _CreatePen(PS_SOLID, RING, colorref(FOCUS))
+			pen = _CreatePen(PS_SOLID, _rowRing(r), colorref(FOCUS))
 			hollow = _gdi32.GetStockObject(5)
 			oldPen = _SelectObject(hdc, pen)
 			oldBrush = _SelectObject(hdc, hollow)
@@ -2458,7 +2466,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 					dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
 					margin = round(MENU_ITEM_MARGIN * dpi / 96)
 					rc = dmi.dis.rcItem
-					_drawRing(dmi.dis.hDC, RECT(rc.left + margin, rc.top, rc.right - margin, rc.bottom), FOCUS)
+					_drawRing(dmi.dis.hDC, RECT(rc.left + margin, rc.top, rc.right - margin, rc.bottom), FOCUS, _rowRing(rc))
 				return res
 			if msg == WM_ERASEBKGND:
 				# Windows erases a new popup menu with the light menu colour and paints the

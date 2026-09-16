@@ -397,7 +397,7 @@ class DevHook:
 
 	def v_setting(self, name, value="on"):
 		"""Set one of the add-on's look settings live, as OK in the panel would: background <key>,
-		accent <key> (keys as in themes.py), brightRows on|off, brightControls on|off, outlineWidth 1..4."""
+		accent <key> (keys as in themes.py), brightRows on|off, brightControls on|off, outlineWidth 1..5."""
 		import config
 
 		import globalPlugins.darkMode as pkg
