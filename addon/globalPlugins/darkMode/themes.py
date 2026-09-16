@@ -64,19 +64,21 @@ def _background(key, label, bg, listBg=None, textAreasFollow=False):
 #   (native.ACCENT_MID_BRIGHTNESS) it is the middle tier: checked boxes, radio dots and
 #   slider thumbs, with white marks.
 # hot / pressed: the bright-tier thumb and glyphs under the mouse, and while pressed.
+# hoverBase: the colour tinted over a list row under the mouse (None = focus).
 # windowsGlyphs: leave check boxes and radio buttons to Windows, which draws them in its own
 #   accent colour. Off for every accent (her call, 2026-09-16: Blue too, so they all match);
 #   kept so an accent can opt back into Windows' glyphs with one word.
-Accent = namedtuple("Accent", "key label focus selection hot pressed windowsGlyphs")
+Accent = namedtuple("Accent", "key label focus selection hot pressed hoverBase windowsGlyphs")
 
 
-def _accent(key, label, focus, selection, hot=None, pressed=None, windowsGlyphs=False):
-	return Accent(key, label, focus, selection, hot or _shade(focus, 0.22), pressed or _shade(focus, 0.38), windowsGlyphs)
+def _accent(key, label, focus, selection, hot=None, pressed=None, hoverBase=None, windowsGlyphs=False):
+	return Accent(key, label, focus, selection, hot or _shade(focus, 0.22), pressed or _shade(focus, 0.38), hoverBase, windowsGlyphs)
 
 
+# The default first, the neutrals, then the colours in rainbow order.
 BACKGROUNDS = (
-	# Translators: a background choice in the Dark Mode settings (Windows' usual dark grey).
-	_background("grey", _("Dark grey"), (0x20, 0x20, 0x20), (0x2B, 0x2B, 0x2B)),
+	# Translators: a background choice in the Dark Mode settings (Windows' usual dark grey, the default).
+	_background("grey", _("Dark grey (default)"), (0x20, 0x20, 0x20), (0x2B, 0x2B, 0x2B)),
 	# Translators: a background choice in the Dark Mode settings.
 	_background("black", _("Black"), BLACK, BLACK, textAreasFollow=True),
 	# Translators: a background choice in the Dark Mode settings (a grey a little lighter than the default).
@@ -87,35 +89,37 @@ BACKGROUNDS = (
 	_background("orange", _("Orange"), (0x33, 0x20, 0x0F)),
 	# Translators: a background choice in the Dark Mode settings (a very dark green).
 	_background("green", _("Green"), (0x14, 0x33, 0x1C)),
+	# Translators: a background choice in the Dark Mode settings (a very dark teal).
+	_background("teal", _("Teal"), (0x14, 0x33, 0x33)),
 	# Translators: a background choice in the Dark Mode settings (a very dark blue).
 	_background("blue", _("Blue"), (0x14, 0x21, 0x3A)),
 	# Translators: a background choice in the Dark Mode settings (a very dark purple).
 	_background("purple", _("Purple"), (0x26, 0x16, 0x38)),
-	# Translators: a background choice in the Dark Mode settings (a very dark teal).
-	_background("teal", _("Teal"), (0x14, 0x33, 0x33)),
 	# Translators: a background choice in the Dark Mode settings (a very dark pink).
 	_background("pink", _("Pink"), (0x38, 0x14, 0x2A)),
 )
 
+# The default first, then the colours in rainbow order.
 ACCENTS = (
 	# Windows 11's dark-mode accent blue for the rings; the selected row sits between the
 	# settings sidebar's dark blue and Windows' bright accent. Hover/pressed as before 0.9.4.
-	# Translators: an accent colour choice in the Dark Mode settings.
-	_accent("blue", _("Blue"), (0x60, 0xCD, 0xFF), (0x1E, 0x5A, 0x8C), (0x00, 0x78, 0xD7), (0x00, 0x5F, 0xB8)),
+	# Translators: an accent colour choice in the Dark Mode settings (the default).
+	_accent("blue", _("Blue (default)"), (0x60, 0xCD, 0xFF), (0x1E, 0x5A, 0x8C), (0x00, 0x78, 0xD7), (0x00, 0x5F, 0xB8)),
 	# Translators: an accent colour choice in the Dark Mode settings.
 	_accent("red", _("Red"), (0xFF, 0x8A, 0x80), (0x8C, 0x1E, 0x1E)),
 	# Translators: an accent colour choice in the Dark Mode settings.
 	_accent("orange", _("Orange"), (0xFF, 0xB8, 0x70), (0x8A, 0x45, 0x12)),
+	# Bumped a step brighter (2026-09-16) from #FFD400 / #6E4A00; the list hover tint keeps the old ring.
+	# Translators: an accent colour choice in the Dark Mode settings.
+	_accent("yellow", _("Yellow"), (0xFF, 0xE1, 0x00), (0x7F, 0x55, 0x00), hoverBase=(0xFF, 0xD4, 0x00)),
 	# Translators: an accent colour choice in the Dark Mode settings.
 	_accent("green", _("Green"), (0x8E, 0xE5, 0x9F), (0x1B, 0x64, 0x37)),
 	# Translators: an accent colour choice in the Dark Mode settings.
-	_accent("purple", _("Purple"), (0xC9, 0xA0, 0xFF), (0x63, 0x43, 0x99)),
-	# Translators: an accent colour choice in the Dark Mode settings.
 	_accent("teal", _("Teal"), (0x8A, 0xED, 0xE6), (0x17, 0x60, 0x60)),
 	# Translators: an accent colour choice in the Dark Mode settings.
-	_accent("pink", _("Pink"), (0xFF, 0xA6, 0xE2), (0x96, 0x24, 0x6B)),
+	_accent("purple", _("Purple"), (0xC9, 0xA0, 0xFF), (0x63, 0x43, 0x99)),
 	# Translators: an accent colour choice in the Dark Mode settings.
-	_accent("yellow", _("Yellow"), (0xFF, 0xD4, 0x00), (0x6E, 0x4A, 0x00)),
+	_accent("pink", _("Pink"), (0xFF, 0xA6, 0xE2), (0x96, 0x24, 0x6B)),
 )
 
 DEFAULT_BACKGROUND = "grey"

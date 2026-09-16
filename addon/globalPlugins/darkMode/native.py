@@ -591,7 +591,7 @@ ID_FOCUS = 15  # check boxes, dropdowns, list views, trees: a solid focus ring i
 ID_FOCUSCHILD = 16  # the edit inside an editable combo box: repaint the combo's ring when focus moves
 ID_LISTBOX = 17  # plain list boxes and dropdown lists: our selection colour over Windows' bright accent
 ID_CHECK = 18  # check boxes: the checked glyph painted again in the Accent colour (Windows draws it in its own)
-ID_HALO = 19  # panels and dialogs: the focus ring drawn OUTSIDE their focused child, with a gap (see HALO)
+ID_HALO = 19  # panels and dialogs: the focus ring drawn OUTSIDE their focused child (see RING_OUTSIDE / RING_GAP)
 
 
 def colorref(rgb):
@@ -652,7 +652,8 @@ FIELD_BG = (0x2B, 0x2B, 0x2B)  # text fields and dropdowns: stays
 LIST_TEXT = (0xFF, 0xFF, 0xFF)
 LIST_DISABLED_TEXT = (0x8A, 0x8A, 0x8A)
 LIST_SEL_UNFOCUSED_BG = (0x50, 0x50, 0x50)  # selected row while the list does not have focus
-LIST_HOT_TINT = 0.25  # the row under the mouse: this much of the accent (FOCUS) blended over LIST_BG (the theme tinted it Windows blue)
+LIST_HOT_TINT = 0.25  # the row under the mouse: this much of LIST_HOT_BASE blended over LIST_BG (the theme tinted it Windows blue)
+LIST_HOT_BASE = (0x60, 0xCD, 0xFF)  # (Accent setting) normally the ring colour
 LIST_SEL_BG = (0x1E, 0x5A, 0x8C)  # selected row (Accent setting); blue sits between the sidebar's dark blue and Windows' bright accent (white text 7.3:1)
 LIST_SEL_TEXT = (0xFF, 0xFF, 0xFF)  # (Accent setting: black with Bright contrast)
 # Check box ticks and radio dots (Accent setting). None leaves Windows' own glyphs, drawn in
@@ -673,11 +674,12 @@ CHECK_MARK_BOLD = 1  # extra pixels the tick and the dot are thickened by
 ACCENT_MID_BRIGHTNESS = 1.4
 RING = 1  # focus rings and the menu outline, in pixels (the "Focus outline thickness" slider, 1 to RING_MAX)
 RING_MAX = 4
-# The gap between a focused control and its ring, which sits OUTSIDE the control (like CSS
-# outline-offset): 1 px at thickness 1-2, 2 px at 3-4 (setRingWidth). Painted on the control's
-# parent, so a field keeps its grey border and a button its edge. 0 = rings inside the control
-# (the pre-0.9.4 way). Rings on a row (list rows, menu items, tabs) stay inside regardless.
-HALO = 1
+# Focus rings sit OUTSIDE the control, painted on its parent, so a field keeps its grey border
+# and a button its edge; RING_GAP is the space between the control and the ring (like CSS
+# outline-offset; 0 = touching). RING_OUTSIDE False = rings inside the control (the pre-0.9.4
+# way). Rings on a row (list rows, menu items, tabs) stay inside regardless.
+RING_OUTSIDE = True
+RING_GAP = 0
 HALO_CLASSES = frozenset((
 	"Button", "ComboBox", "Edit", "RICHEDIT50W", "RichEdit20W", "RichEdit20A", "ListBox",
 	"SysListView32", "SysTreeView32", "msctls_trackbar32",
@@ -736,7 +738,7 @@ def _paintFrame(hwnd):
 		thick = _frameOf(hwnd)
 		if thick <= 0:
 			return
-		focused = _GetFocus() == hwnd and HALO <= 0  # with the halo on, the ring is outside (ID_HALO)
+		focused = _GetFocus() == hwnd and not RING_OUTSIDE  # outside: the ring is on the parent (ID_HALO)
 		outer = _CreateSolidBrush(colorref(FOCUS if focused else _frameColours.get(hwnd, BORDER)))
 		inner = _CreateSolidBrush(colorref(FRAME_INNER))
 		try:
@@ -868,7 +870,7 @@ def _drawListViewRow(hwnd, hdc, item, hot=False):
 	if not ex & LVS_EX_FULLROWSELECT:
 		fill = RECT(label.left, label.top, label.right, label.bottom)
 	if hot:
-		rowBg, rowText = blend(LIST_BG, FOCUS, LIST_HOT_TINT), LIST_TEXT
+		rowBg, rowText = blend(LIST_BG, LIST_HOT_BASE, LIST_HOT_TINT), LIST_TEXT
 	else:
 		rowBg, rowText = (LIST_SEL_BG if focused else LIST_SEL_UNFOCUSED_BG), LIST_SEL_TEXT
 	if not hot and focused and _focusCuesVisible(hwnd) and item == _SendMessageW(hwnd, LVM_GETNEXTITEM, _NEG1, LVNI_FOCUSED):
@@ -921,7 +923,7 @@ def _paintFocusOverlay(hwnd):
 	"""After the control has painted itself: our ring where Windows would have put dotted lines."""
 	if not _hasFocus(hwnd) or not _focusCuesVisible(hwnd):
 		return
-	if HALO > 0 and _className(hwnd) not in ("SysListView32", "SysTreeView32"):
+	if RING_OUTSIDE and _className(hwnd) not in ("SysListView32", "SysTreeView32"):
 		return  # the ring is outside the control (ID_HALO); a list's focused row keeps its own
 	rc = _focusRect(hwnd)
 	if rc is None:
@@ -1021,7 +1023,7 @@ def _drawButton(hwnd, hdc):
 		face, border, text = BTN_HOT, BTN_HOT_BORDER, BTN_TEXT
 	else:
 		face, border, text = BTN_FACE, BORDER, BTN_TEXT
-	focusRing = focused and not (uistate & UISF_HIDEFOCUS) and HALO <= 0  # halo on: the ring is outside (ID_HALO)
+	focusRing = focused and not (uistate & UISF_HIDEFOCUS) and not RING_OUTSIDE  # outside: on the parent (ID_HALO)
 	if focusRing:
 		border = FOCUS  # the border is the ring's first pixel
 
@@ -1469,7 +1471,7 @@ def _spinOf(edit):
 
 def _haloTarget():
 	"""The focused control that gets an outside ring and the surface it goes on (its parent), or None."""
-	if HALO <= 0:
+	if not RING_OUTSIDE:
 		return None
 	target = _GetFocus()
 	if not target or not _IsWindow(target):
@@ -1504,7 +1506,7 @@ def _haloRect(target, parent):
 	br = wintypes.POINT(wr.right, wr.bottom)
 	_user32.ScreenToClient(parent, ctypes.byref(tl))
 	_user32.ScreenToClient(parent, ctypes.byref(br))
-	pad = HALO + RING
+	pad = RING_GAP + RING
 	return RECT(tl.x - pad, tl.y - pad, br.x + pad, br.y + pad)
 
 
@@ -1691,7 +1693,7 @@ def _overdrawComboBorder(hwnd):
 		colour = BTN_DISABLED_BORDER
 	elif _SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0):
 		colour = FOCUS
-	elif HALO <= 0 and _hasFocus(hwnd) and _focusCuesVisible(hwnd):
+	elif not RING_OUTSIDE and _hasFocus(hwnd) and _focusCuesVisible(hwnd):
 		colour = FOCUS
 	else:
 		pt = wintypes.POINT()
@@ -1853,7 +1855,7 @@ def _drawRadio(hwnd, hdc):
 		gap = round(3 * dpi / 96)
 		trc = RECT(glyph + gap, 0, w, h)
 		_DrawTextW(hdc, text, -1, ctypes.byref(trc), flags)
-		if focused and not (uistate & UISF_HIDEFOCUS) and HALO <= 0:
+		if focused and not (uistate & UISF_HIDEFOCUS) and not RING_OUTSIDE:
 			calc = RECT(0, 0, 0, 0)
 			_DrawTextW(hdc, text, -1, ctypes.byref(calc), flags | DT_CALCRECT)
 			fr = RECT(glyph + gap - 1, max(0, (h - calc.bottom) // 2 - 1), min(w, glyph + gap + calc.right + 2), min(h, (h + calc.bottom) // 2 + 1))
@@ -2075,7 +2077,7 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 			_haloQueuedTo = None
 			_haloRefresh()
 			return 0
-		if msg in (WM_SETFOCUS, WM_KILLFOCUS, WM_UPDATEUISTATE) and HALO > 0:
+		if msg in (WM_SETFOCUS, WM_KILLFOCUS, WM_UPDATEUISTATE) and RING_OUTSIDE:
 			_queueHaloRefresh(hwnd)
 		if idSubclass in (ID_FOCUS, ID_SLIDER, ID_LISTBOX):
 			handled, res = _uiStateMessage(hwnd, msg, wParam, lParam)
@@ -2131,12 +2133,12 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 				_RedrawWindow(hwnd, None, None, RDW_FRAME | RDW_INVALIDATE)
 				return res
-			if msg == WM_PAINT and HALO <= 0 and _GetFocus() == hwnd and RING > _frameOf(hwnd):
+			if msg == WM_PAINT and not RING_OUTSIDE and _GetFocus() == hwnd and RING > _frameOf(hwnd):
 				# the ring reaches into the client area, which this paint just covered
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 				_paintFrame(hwnd)
 				return res
-			if msg in (WM_VSCROLL, WM_HSCROLL, WM_MOUSEWHEEL) and HALO <= 0 and _GetFocus() == hwnd and RING > _frameOf(hwnd):
+			if msg in (WM_VSCROLL, WM_HSCROLL, WM_MOUSEWHEEL) and not RING_OUTSIDE and _GetFocus() == hwnd and RING > _frameOf(hwnd):
 				# scrolling shifts the client pixels, our ring's inner lines with them
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
 				_InvalidateRect(hwnd, None, False)
@@ -2759,15 +2761,20 @@ def applyListBox(hwnd, dark: bool):
 		_InvalidateRect(hwnd, None, False)
 
 
+def repaintSlidersNow():
+	"""Sliders paint their thumb through custom draw; after a colour change, have them do it
+	now rather than at the next idle moment."""
+	for hwnd in list(_sliders):
+		if _IsWindow(hwnd):
+			_RedrawWindow(hwnd, None, None, RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW)
+
+
 def setRingWidth(pixels: int) -> bool:
-	"""Focus rings and the menu outline, 1 to RING_MAX pixels; the gap outside a control follows
-	(1 px up to 2, else 2 px). Returns True if it changed."""
-	global RING, HALO
+	"""Focus rings and the menu outline, 1 to RING_MAX pixels. Returns True if it changed."""
+	global RING
 	want = max(1, min(RING_MAX, int(pixels)))
 	changed = want != RING
 	RING = want
-	if HALO > 0:
-		HALO = 1 if RING <= 2 else 2
 	if changed:
 		_haloRefresh()  # the ring around the focused control has a new size
 	return changed

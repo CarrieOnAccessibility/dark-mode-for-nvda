@@ -703,19 +703,23 @@ def setAccent(key: str, brightContrast: bool = False) -> bool:
 		return False
 	_accent = want
 	_brightContrast = brightContrast
-	# Three tiers of the accent. Bright (focus): the rings, always. Dark (selection): selected
-	# rows in lists and dropdowns. Mid: the dark tier brightened, for checked boxes, radio dots
-	# and slider thumbs, with a white mark. Bright contrast puts rows, boxes and thumbs all on
-	# the bright tier, with black marks.
+	# Tiers of the one accent. Bright (focus): the rings, always. Dark (selection): selected
+	# rows in lists and dropdowns. Mid: the dark tier brightened, for checked boxes and radio
+	# dots, with a white mark. Thumb: halfway between dark and bright, for slider thumbs.
+	# Bright contrast puts rows, boxes and thumbs all on the bright tier, with black marks.
 	native.FOCUS = want.focus
+	native.LIST_HOT_BASE = want.hoverBase or want.focus
 	native.LIST_SEL_BG = want.focus if brightContrast else want.selection
 	native.LIST_SEL_TEXT = themes.BLACK if brightContrast else themes.WHITE
 	if brightContrast:
 		fill, hot, pressed, mark = want.focus, want.hot, want.pressed, themes.BLACK
+		thumb, thumbHot, thumbPressed = want.focus, want.hot, want.pressed
 	else:
 		fill = native.brighten(want.selection, native.ACCENT_MID_BRIGHTNESS)
 		hot, pressed, mark = themes._step(fill, 24), themes._step(fill, 40), themes.WHITE  # a dark fill brightens under the mouse
-	native.SLIDER_THUMB, native.SLIDER_THUMB_HOT, native.SLIDER_THUMB_PRESSED = fill, hot, pressed
+		thumb = native.blend(want.selection, want.focus, 0.5)
+		thumbHot, thumbPressed = themes._step(thumb, 24), themes._step(thumb, 40)
+	native.SLIDER_THUMB, native.SLIDER_THUMB_HOT, native.SLIDER_THUMB_PRESSED = thumb, thumbHot, thumbPressed
 	if want.windowsGlyphs:
 		native.GLYPH = native.GLYPH_HOT = native.GLYPH_PRESSED = None
 	else:
@@ -747,6 +751,7 @@ def repaintAllWindows():
 			native._RedrawWindow(tlw.GetHandle(), None, None, native.RDW_FRAME | native.RDW_INVALIDATE | native.RDW_ERASE | native.RDW_ALLCHILDREN)
 		except Exception:
 			log.debugWarning("darkMode: repaint failed", exc_info=True)
+	native.repaintSlidersNow()
 
 
 # --- Process-wide switches --------------------------------------------------
