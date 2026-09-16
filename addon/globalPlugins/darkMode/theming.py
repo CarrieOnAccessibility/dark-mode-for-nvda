@@ -709,10 +709,18 @@ def setAccent(key: str, brightContrast: bool = False) -> bool:
 	native.SLIDER_THUMB = want.focus
 	native.SLIDER_THUMB_HOT = want.hot
 	native.SLIDER_THUMB_PRESSED = want.pressed
-	# check box ticks and radio dots: Windows' own with the Windows-coloured accent, else ours
-	native.GLYPH = None if want.windowsGlyphs else want.focus
-	native.GLYPH_HOT = None if want.windowsGlyphs else want.hot
-	native.GLYPH_PRESSED = None if want.windowsGlyphs else want.pressed
+	# Check box ticks and radio dots: a white mark on the selected-row colour, or with Bright
+	# contrast a black mark on the accent itself, the same pairing as the selected rows.
+	if want.windowsGlyphs:
+		native.GLYPH = native.GLYPH_HOT = native.GLYPH_PRESSED = None
+	elif brightContrast:
+		native.GLYPH, native.GLYPH_HOT, native.GLYPH_PRESSED = want.focus, want.hot, want.pressed
+		native.GLYPH_MARK = themes.BLACK
+	else:
+		native.GLYPH = want.selection
+		native.GLYPH_HOT = themes._step(want.selection, 24)  # a dark fill brightens under the mouse
+		native.GLYPH_PRESSED = themes._step(want.selection, 40)
+		native.GLYPH_MARK = themes.WHITE
 	return True
 
 

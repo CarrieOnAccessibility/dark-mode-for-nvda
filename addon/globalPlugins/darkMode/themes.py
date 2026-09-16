@@ -58,10 +58,11 @@ def _background(key, label, bg, listBg=None, textAreasFollow=False):
 	return Background(key, label, bg, _step(bg, 11) if listBg is None else listBg, textAreasFollow)
 
 
-# focus: focus rings, the menu outline, the tab focus line, a slider's thumb at rest, and the
-#   checked glyph of check boxes and radio buttons; with Bright contrast also the selected
-#   row (then with black text).
-# selection: the selected row of a focused list, with white text.
+# focus: focus rings, the menu outline, the tab focus line, a slider's thumb at rest; with
+#   Bright contrast also the selected row and the checked glyph of check boxes and radio
+#   buttons (then with black text / a black mark).
+# selection: the selected row of a focused list and the checked glyph of check boxes and
+#   radio buttons, with white text / a white mark.
 # hot / pressed: the slider thumb and the checked glyphs under the mouse, and while pressed.
 # windowsGlyphs: leave check boxes and radio buttons to Windows, which draws them in its own
 #   accent colour. Off for every accent (her call, 2026-09-16: Blue too, so they all match);
@@ -79,7 +80,7 @@ BACKGROUNDS = (
 	# Translators: a background choice in the Dark Mode settings.
 	_background("black", _("Black"), BLACK, BLACK, textAreasFollow=True),
 	# Translators: a background choice in the Dark Mode settings (a grey a little lighter than the default).
-	_background("lightgrey", _("Lighter grey"), (0x2E, 0x2E, 0x2E)),
+	_background("lightgrey", _("Lighter grey"), (0x36, 0x36, 0x36)),
 	# Translators: a background choice in the Dark Mode settings (a very dark red).
 	_background("red", _("Red"), (0x33, 0x14, 0x14)),
 	# Translators: a background choice in the Dark Mode settings (a very dark orange).

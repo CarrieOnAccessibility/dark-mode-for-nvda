@@ -33,13 +33,17 @@ except Exception:  # not running from an installed add-on (e.g. scratchpad)
 	pass
 
 CONF_SECTION = "darkMode"
+# The defaults of the look settings, also what the panel's "Reset to defaults" button sets.
+DEFAULT_BRIGHT_CONTRAST = False
+DEFAULT_OUTLINE_WIDTH = 1
+DEFAULT_RESTART_WHEN_OFF = True
 config.conf.spec[CONF_SECTION] = {
 	"mode": "option('dark', 'off', default='dark')",
-	"restartWhenOff": "boolean(default=True)",
+	"restartWhenOff": "boolean(default=%s)" % DEFAULT_RESTART_WHEN_OFF,
 	"background": themes.optionSpec(themes.BACKGROUNDS, themes.DEFAULT_BACKGROUND),
 	"accent": themes.optionSpec(themes.ACCENTS, themes.DEFAULT_ACCENT),
-	"brightContrast": "boolean(default=False)",
-	"outlineWidth": "integer(min=1, max=%d, default=1)" % native.RING_MAX,
+	"brightContrast": "boolean(default=%s)" % DEFAULT_BRIGHT_CONTRAST,
+	"outlineWidth": "integer(min=1, max=%d, default=%d)" % (native.RING_MAX, DEFAULT_OUTLINE_WIDTH),
 	# Up to 0.9.3 the background was a "Use black backgrounds" check box and the outline a
 	# "Thicker focus outlines" one. Kept so the old values can still be read; migrateConfig()
 	# carries them into "background" / "outlineWidth" once and clears them.
@@ -194,11 +198,12 @@ class DarkModeSettingsPanel(SettingsPanel):
 			wx.CheckBox(self, label=_("&Restart NVDA when dark mode is turned off (recommended)"))
 		)
 		self.restartCheckBox.SetValue(bool(section["restartWhenOff"]))
+		# Translators: label of the button that puts every Dark Mode setting but the on/off switch back to its default.
+		self.resetButton = sHelper.addItem(wx.Button(self, label=_("Reset to &defaults")))
 		note = wx.StaticText(
 			self,
 			# Translators: explanatory text shown in the Dark Mode settings category.
 			label=_(
-				"Colours and the outline thickness show as you choose them; Cancel puts them back. "
 				"You can toggle dark mode in the NVDA menu under Preferences, or add a keyboard shortcut "
 				"in Input Gestures. Dark mode turns off automatically while Windows High Contrast is on."
 			),
@@ -209,6 +214,7 @@ class DarkModeSettingsPanel(SettingsPanel):
 		self.accentChoice.Bind(wx.EVT_CHOICE, self.onLookChanged)
 		self.brightCheckBox.Bind(wx.EVT_CHECKBOX, self.onLookChanged)
 		self.outlineSlider.Bind(wx.EVT_SLIDER, self.onLookChanged)
+		self.resetButton.Bind(wx.EVT_BUTTON, self.onReset)
 
 	def _chosenLook(self):
 		return (
@@ -228,6 +234,17 @@ class DarkModeSettingsPanel(SettingsPanel):
 		self._cancelPreview()
 		# plain values only: a timer that outlives the dialog must not hold on to it
 		self._preview = wx.CallLater(self.PREVIEW_DELAY_MS, setLook, *self._chosenLook())
+
+	def onReset(self, evt):
+		"""Every setting here but the on/off switch back to its default, previewed at once
+		(OK keeps it, Cancel still puts the saved look back)."""
+		self.backgroundChoice.SetSelection(themes.index(themes.BACKGROUNDS, themes.DEFAULT_BACKGROUND))
+		self.accentChoice.SetSelection(themes.index(themes.ACCENTS, themes.DEFAULT_ACCENT))
+		self.brightCheckBox.SetValue(DEFAULT_BRIGHT_CONTRAST)
+		self.outlineSlider.SetValue(DEFAULT_OUTLINE_WIDTH)
+		self.restartCheckBox.SetValue(DEFAULT_RESTART_WHEN_OFF)
+		self._cancelPreview()
+		setLook(*self._chosenLook())
 
 	def onDiscard(self):
 		"""Cancel: the saved look again."""

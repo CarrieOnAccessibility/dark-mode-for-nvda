@@ -630,7 +630,7 @@ LIST_SEL_TEXT = (0xFF, 0xFF, 0xFF)  # (Accent setting: black with Bright contras
 GLYPH = None
 GLYPH_HOT = None  # under the mouse
 GLYPH_PRESSED = None  # mouse button down
-GLYPH_MARK = (0x00, 0x00, 0x00)  # the tick on an accent-filled box, the dot in an accent radio ring
+GLYPH_MARK = (0xFF, 0xFF, 0xFF)  # the tick on a filled box, the dot in a filled radio: white on the selection colour, black on the accent (Bright contrast)
 RING = 1  # focus rings and the menu outline, in pixels (the "Focus outline thickness" slider, 1 to RING_MAX)
 RING_MAX = 4
 TAB_TEXT = (0xC8, 0xC8, 0xC8)  # unselected tab label
@@ -1456,11 +1456,11 @@ def _drawCheckGlyph(hdc, box, state, hot=False, pushed=False):
 
 
 def _drawRadioGlyph(hdc, box, hot=False, pushed=False):
-	"""A checked radio button in the accent: an accent disc with a dark centre dot, as Windows 11
-	draws it in its own accent. Only called when GLYPH is set."""
+	"""A checked radio button: a filled disc with a centre dot in the mark colour (the same
+	pairing as the check boxes). Only called when GLYPH is set."""
 	colour = GLYPH_PRESSED if pushed else GLYPH_HOT if hot else GLYPH
 	size = box.right - box.left
-	for rgb, inset in ((colour, 0), (PARENT_BG, max(2, round(size * 0.28)))):
+	for rgb, inset in ((colour, 0), (GLYPH_MARK, max(2, round(size * 0.28)))):
 		pen = _CreatePen(PS_SOLID, 1, colorref(rgb))
 		brush = _CreateSolidBrush(colorref(rgb))
 		oldPen = _SelectObject(hdc, pen)
