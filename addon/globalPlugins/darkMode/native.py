@@ -685,7 +685,7 @@ HALO_CLASSES = frozenset((
 	"SysListView32", "SysTreeView32", "msctls_trackbar32",
 ))
 HALO_CUE_CLASSES = frozenset(("Button", "ComboBox", "msctls_trackbar32"))  # ring only while Windows shows focus cues, as their inside rings did
-_lastHalo = None  # (target hwnd, parent hwnd, (l, t, r, b) of the ring's outer rect in parent coordinates)
+_lastHalo = None  # (target hwnd, ((surface hwnd, (l, t, r, b) of the ring on it), ...)) - see _haloSurfaces
 _haloQueuedTo = None  # hwnd a WM_DARK_HALO has been posted to and not yet handled
 TAB_TEXT = (0xC8, 0xC8, 0xC8)  # unselected tab label
 TAB_SELECTED_FACE = (0x3A, 0x3A, 0x3A)
@@ -1517,28 +1517,52 @@ def _haloRect(target, parent):
 	return RECT(tl.x - pad, tl.y - pad, br.x + pad, br.y + pad)
 
 
-def _redrawHaloArea(parent, key):
+def _redrawHaloArea(surface, key):
 	rc = RECT(key[0] - 1, key[1] - 1, key[2] + 1, key[3] + 1)
-	_RedrawWindow(parent, ctypes.byref(rc), None, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN)
+	_RedrawWindow(surface, ctypes.byref(rc), None, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN)
+
+
+WS_CHILD = 0x40000000
+
+
+def _haloSurfaces(target, parent):
+	"""The windows the ring is painted on, with the ring's rect on each: the parent, and when
+	the ring reaches past the parent's edge (a control flush at a panel's top-left), the
+	ancestors above it until one holds the whole ring. Each paints its own part; a window
+	paints with its children clipped out, so the parts join without overlap."""
+	out = []
+	surface = parent
+	while surface and _IsWindow(surface):
+		rc = _haloRect(target, surface)
+		out.append((surface, (rc.left, rc.top, rc.right, rc.bottom)))
+		client = RECT()
+		_GetClientRect(surface, ctypes.byref(client))
+		inside = rc.left >= 0 and rc.top >= 0 and rc.right <= client.right and rc.bottom <= client.bottom
+		if inside or not (_GetWindowLongW(surface, GWL_STYLE) & WS_CHILD):
+			break
+		surface = _user32.GetParent(surface)
+	return out
 
 
 def _haloRefresh():
-	"""After focus (or the focus-cue state) changed: erase the old outside ring from its parent
-	and have the new one's parent repaint that area (ID_HALO draws it after the paint)."""
+	"""After focus (or the focus-cue state) changed: erase the old outside ring from its
+	surfaces and have the new one's surfaces repaint that area (ID_HALO draws it after each paint)."""
 	global _lastHalo
 	new = _haloTarget()
 	key = None
 	if new:
-		rc = _haloRect(*new)
-		key = (new[0], new[1], (rc.left, rc.top, rc.right, rc.bottom))
+		key = (new[0], tuple(_haloSurfaces(*new)))
 	if _lastHalo == key:
 		return
 	old, _lastHalo = _lastHalo, key
-	if old and _IsWindow(old[1]):
-		_redrawHaloArea(old[1], old[2])
+	if old:
+		for surface, rc in old[1]:
+			if _IsWindow(surface):
+				_redrawHaloArea(surface, rc)
 	if key:
-		_attach(key[1], ID_HALO)
-		_redrawHaloArea(key[1], key[2])
+		for surface, rc in key[1]:
+			_attach(surface, ID_HALO)
+			_redrawHaloArea(surface, rc)
 
 
 def _queueHaloRefresh(hwnd):
@@ -1550,33 +1574,40 @@ def _queueHaloRefresh(hwnd):
 	_user32.PostMessageW(hwnd, WM_DARK_HALO, 0, 0)
 
 
-def _drawHalo(parent):
-	"""After a panel or dialog painted: the outside ring of its focused child, if it has one.
-	Children are clipped out of the DC, so the ring never touches the control or a neighbour."""
+def _drawHalo(surface):
+	"""After a panel or dialog painted: its part of the outside ring of the focused control, if
+	it has one. Children are clipped out of the DC, so the ring never touches the control, a
+	neighbour, or the part a window below it paints."""
 	global _lastHalo
 	new = _haloTarget()
-	if not new or new[1] != parent:
+	if not new:
 		return
-	rc = _haloRect(*new)
-	_lastHalo = (new[0], new[1], (rc.left, rc.top, rc.right, rc.bottom))
-	hdc = _GetDCEx(parent, None, DCX_CACHE | DCX_CLIPCHILDREN)
-	if not hdc:
+	surfaces = _haloSurfaces(*new)
+	_lastHalo = (new[0], tuple(surfaces))
+	for hwnd, key in surfaces:
+		if hwnd != surface:
+			continue
+		hdc = _GetDCEx(surface, None, DCX_CACHE | DCX_CLIPCHILDREN)
+		if not hdc:
+			return
+		try:
+			_drawRing(hdc, RECT(*key), FOCUS)
+		finally:
+			_ReleaseDC(surface, hdc)
 		return
-	try:
-		_drawRing(hdc, rc, FOCUS)
-	finally:
-		_ReleaseDC(parent, hdc)
 
 
 def clearHalos():
-	"""Dark mode off: no outside rings, and no parents watched for them."""
+	"""Dark mode off: no outside rings, and no windows watched for them."""
 	global _lastHalo, _haloQueuedTo
 	old, _lastHalo = _lastHalo, None
 	_haloQueuedTo = None
 	for hwnd in [h for h, ids in _subclassed.items() if ID_HALO in ids]:
 		_detach(hwnd, ID_HALO)
-	if old and _IsWindow(old[1]):
-		_redrawHaloArea(old[1], old[2])
+	if old:
+		for surface, rc in old[1]:
+			if _IsWindow(surface):
+				_redrawHaloArea(surface, rc)
 
 
 def _checkGlyphSize(hwnd, hdc, height):
@@ -2059,12 +2090,13 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 		if msg == WM_NCDESTROY:
 			if _haloQueuedTo == hwnd:
 				_haloQueuedTo = None
-			if _lastHalo and hwnd == _lastHalo[0]:  # the ringed control goes; its parent may stay
-				parent, key = _lastHalo[1], _lastHalo[2]
+			if _lastHalo and hwnd == _lastHalo[0]:  # the ringed control goes; its surfaces may stay
+				surfaces = _lastHalo[1]
 				_lastHalo = None
-				if _IsWindow(parent):
-					_redrawHaloArea(parent, key)
-			elif _lastHalo and hwnd == _lastHalo[1]:
+				for surface, key in surfaces:
+					if _IsWindow(surface):
+						_redrawHaloArea(surface, key)
+			elif _lastHalo and any(hwnd == surface for surface, _ in _lastHalo[1]):
 				_lastHalo = None
 			_RemoveWindowSubclass(hwnd, _subclassProc, idSubclass)
 			_subclassed.pop(hwnd, None)

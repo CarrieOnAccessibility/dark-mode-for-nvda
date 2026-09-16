@@ -7,8 +7,9 @@
 # A Background is what dialogs, panels, lists and the help pages are filled with. An
 # Accent is the colour of everything that points at something: focus rings, the outline
 # on the highlighted menu item, the selected row of a list, a slider's thumb. The two
-# are independent, so any background goes with any accent. "Bright contrast" (a check
-# box, not a table) makes the selected row the accent colour itself with black text.
+# are independent, so any background goes with any accent. The two "Bright contrast"
+# check boxes (not tables) put selected rows, or checked boxes and slider thumbs, in the
+# accent colour itself with black text and marks.
 #
 # Adding one is adding an entry below; the settings panel lists them in this order and
 # the config spec is built from the keys. Every new entry needs a sweep (dev/sweep.py)
@@ -75,7 +76,7 @@ def _accent(key, label, focus, selection, hot=None, pressed=None, hoverBase=None
 	return Accent(key, label, focus, selection, hot or _shade(focus, 0.22), pressed or _shade(focus, 0.38), hoverBase, windowsGlyphs)
 
 
-# The default first, the neutrals, then the colours in rainbow order.
+# Black and greys only (her call, 2026-09-16: the very dark colours were tried and dropped).
 BACKGROUNDS = (
 	# Translators: a background choice in the Dark Mode settings (Windows' usual dark grey, the default).
 	_background("grey", _("Dark grey (default)"), (0x20, 0x20, 0x20), (0x2B, 0x2B, 0x2B)),
@@ -83,20 +84,6 @@ BACKGROUNDS = (
 	_background("black", _("Black"), BLACK, BLACK, textAreasFollow=True),
 	# Translators: a background choice in the Dark Mode settings (a grey a little lighter than the default).
 	_background("lightgrey", _("Lighter grey"), (0x36, 0x36, 0x36)),
-	# Translators: a background choice in the Dark Mode settings (a very dark red).
-	_background("red", _("Red"), (0x33, 0x14, 0x14)),
-	# Translators: a background choice in the Dark Mode settings (a very dark orange).
-	_background("orange", _("Orange"), (0x33, 0x20, 0x0F)),
-	# Translators: a background choice in the Dark Mode settings (a very dark green).
-	_background("green", _("Green"), (0x14, 0x33, 0x1C)),
-	# Translators: a background choice in the Dark Mode settings (a very dark teal).
-	_background("teal", _("Teal"), (0x14, 0x33, 0x33)),
-	# Translators: a background choice in the Dark Mode settings (a very dark blue).
-	_background("blue", _("Blue"), (0x14, 0x21, 0x3A)),
-	# Translators: a background choice in the Dark Mode settings (a very dark purple).
-	_background("purple", _("Purple"), (0x26, 0x16, 0x38)),
-	# Translators: a background choice in the Dark Mode settings (a very dark pink).
-	_background("pink", _("Pink"), (0x38, 0x14, 0x2A)),
 )
 
 # The default first, then the colours in rainbow order.

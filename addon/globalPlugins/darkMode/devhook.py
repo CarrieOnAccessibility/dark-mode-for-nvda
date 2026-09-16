@@ -481,6 +481,38 @@ class DevHook:
 		wx.CallLater(3600, done)
 		print("tracing; read the NVDA log")
 
+	def v_combokey(self, titlePart, index="0", key="space"):
+		"""Focus the Nth wx.Choice in a dialog and send it a key (space|f4|altdown) as window
+		messages, then report whether its list dropped; closes it again."""
+		from logHandler import log
+
+		w = _findTLW(titlePart)
+		found = [c for c in _walk(w) if isinstance(c, wx.Choice) and c.IsShownOnScreen()] if w else []
+		if not found:
+			print("no shown Choice in", repr(titlePart))
+			return
+		c = found[int(index) % len(found)]
+		c.SetFocus()
+		h = c.GetHandle()
+		vk = {"space": 0x20, "f4": 0x73, "altdown": 0x28}[key]
+		if key == "altdown":
+			_user32.SendMessageW(h, 0x0104, vk, 0x20000000 | 1)  # WM_SYSKEYDOWN with the Alt context bit
+			_user32.SendMessageW(h, 0x0105, vk, 0xE0000000 | 1)
+		else:
+			_user32.SendMessageW(h, 0x0100, vk, 1)  # WM_KEYDOWN
+			if key == "space":
+				_user32.SendMessageW(h, 0x0102, 0x20, 1)  # WM_CHAR
+			_user32.SendMessageW(h, 0x0101, vk, 0xC0000001)  # WM_KEYUP
+
+		def report():
+			dropped = _user32.SendMessageW(h, 0x0157, 0, 0)  # CB_GETDROPPEDSTATE
+			log.info("darkMode combokey: %s -> dropped %s" % (key, bool(dropped)))
+			if dropped:
+				_user32.SendMessageW(h, 0x014F, 0, 0)  # CB_SHOWDROPDOWN off
+
+		wx.CallLater(250, report)
+		print("sent", key, "to", h, "; result in the NVDA log")
+
 	def v_ringtime(self):
 		"""How long one live change of the outline thickness costs (what a drag of the slider pays per step)."""
 		import time
