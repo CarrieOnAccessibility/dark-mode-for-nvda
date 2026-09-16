@@ -828,6 +828,7 @@ class DarkModeEngine:
 			native.installMenuHook()
 			installMessageWindowWatch()
 		else:
+			native.clearHalos()
 			removeMessageWindowWatch()
 			native.detachAll()
 		if self.onStateChanged:
