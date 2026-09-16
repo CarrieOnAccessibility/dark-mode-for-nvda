@@ -717,9 +717,10 @@ def setAccent(key: str, brightContrast: bool = False) -> bool:
 		native.GLYPH, native.GLYPH_HOT, native.GLYPH_PRESSED = want.focus, want.hot, want.pressed
 		native.GLYPH_MARK = themes.BLACK
 	else:
-		native.GLYPH = want.selection
-		native.GLYPH_HOT = themes._step(want.selection, 24)  # a dark fill brightens under the mouse
-		native.GLYPH_PRESSED = themes._step(want.selection, 40)
+		fill = native.brighten(want.selection, native.CHECK_FILL_BRIGHTNESS)
+		native.GLYPH = fill
+		native.GLYPH_HOT = themes._step(fill, 24)  # a dark fill brightens under the mouse
+		native.GLYPH_PRESSED = themes._step(fill, 40)
 		native.GLYPH_MARK = themes.WHITE
 	return True
 

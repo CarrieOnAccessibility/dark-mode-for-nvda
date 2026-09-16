@@ -435,6 +435,8 @@ TBM_GETTHUMBRECT = 0x0400 + 25
 CDIS_SELECTED = 0x0001
 CDIS_DISABLED = 0x0004
 CDIS_HOT = 0x0040
+LVM_GETHOTITEM = 0x1000 + 61
+CB_GETDROPPEDSTATE = 0x0157
 WM_WINDOWPOSCHANGED = 0x0047
 WS_CAPTION = 0x00C00000
 _ExcludeClipRect = _gdi32.ExcludeClipRect
@@ -597,6 +599,26 @@ def colorref(rgb):
 	return r | (g << 8) | (b << 16)
 
 
+def blend(base, over, amount):
+	"""base with `amount` (0..1) of `over` mixed in."""
+	return tuple(int(round(b * (1 - amount) + o * amount)) for b, o in zip(base, over))
+
+
+def brighten(rgb, factor):
+	"""Every channel scaled by factor (CSS brightness()): lighter or darker, the same hue."""
+	return tuple(max(0, min(255, int(round(c * factor)))) for c in rgb)
+
+
+def _insetForRing(fillColour):
+	"""How far a selected row's fill stays inside its focus ring: a pixel of gap when the fill is
+	the ring's own colour (Bright contrast), so the ring reads the same as always; else none."""
+	return RING + 1 if tuple(fillColour) == tuple(FOCUS) else 0
+
+
+def _deflate(rc, n):
+	return RECT(rc.left + n, rc.top + n, max(rc.left + n, rc.right - n), max(rc.top + n, rc.bottom - n))
+
+
 # --- Palette (RGB tuples). Tweak here. -------------------------------------
 # The ones marked "Background setting" / "Accent setting" are overwritten by theming.setBackground /
 # setAccent from the tables in themes.py; the values here are what the test bench starts from.
@@ -630,6 +652,7 @@ FIELD_BG = (0x2B, 0x2B, 0x2B)  # text fields and dropdowns: stays
 LIST_TEXT = (0xFF, 0xFF, 0xFF)
 LIST_DISABLED_TEXT = (0x8A, 0x8A, 0x8A)
 LIST_SEL_UNFOCUSED_BG = (0x50, 0x50, 0x50)  # selected row while the list does not have focus
+LIST_HOT_TINT = 0.25  # the row under the mouse: this much of the accent (FOCUS) blended over LIST_BG (the theme tinted it Windows blue)
 LIST_SEL_BG = (0x1E, 0x5A, 0x8C)  # selected row (Accent setting); blue sits between the sidebar's dark blue and Windows' bright accent (white text 7.3:1)
 LIST_SEL_TEXT = (0xFF, 0xFF, 0xFF)  # (Accent setting: black with Bright contrast)
 # Check box ticks and radio dots (Accent setting). None leaves Windows' own glyphs, drawn in
@@ -644,6 +667,7 @@ CHECK_HOT_FACE = (0x3A, 0x3A, 0x3A)  # ...under the mouse
 CHECK_PRESSED_FACE = (0x50, 0x50, 0x50)  # ...mouse button down
 CHECK_DISABLED_FILL = (0x50, 0x50, 0x50)  # a disabled checked box or radio
 CHECK_MARK_BOLD = 1  # extra pixels the tick and the dot are thickened by
+CHECK_FILL_BRIGHTNESS = 1.25  # a checked box (without Bright contrast) is the selected-row colour this much brighter, like CSS brightness()
 RING = 1  # focus rings and the menu outline, in pixels (the "Focus outline thickness" slider, 1 to RING_MAX)
 RING_MAX = 4
 # The gap between a focused control and its ring, which sits OUTSIDE the control (like CSS
@@ -821,8 +845,9 @@ def _listViewColumnFormat(hwnd, col):
 	return 0
 
 
-def _drawListViewRow(hwnd, hdc, item):
-	"""A selected list view row, in our selection colour: the theme would paint its own highlight
+def _drawListViewRow(hwnd, hdc, item, hot=False):
+	"""A selected list view row in our selection colour, or (hot) the unselected row under the
+	mouse in a tint of the accent: the theme would paint its own highlights, in Windows' accent,
 	and ignore any colour we hand it. Returns False (let Windows draw) for lists with icons."""
 	if _SendMessageW(hwnd, LVM_GETIMAGELIST, LVSIL_SMALL, 0):
 		return False
@@ -839,7 +864,13 @@ def _drawListViewRow(hwnd, hdc, item):
 	fill = RECT(bounds.left, bounds.top, min(bounds.right, client.right), bounds.bottom)
 	if not ex & LVS_EX_FULLROWSELECT:
 		fill = RECT(label.left, label.top, label.right, label.bottom)
-	brush = _CreateSolidBrush(colorref(LIST_SEL_BG if focused else LIST_SEL_UNFOCUSED_BG))
+	if hot:
+		rowBg, rowText = blend(LIST_BG, FOCUS, LIST_HOT_TINT), LIST_TEXT
+	else:
+		rowBg, rowText = (LIST_SEL_BG if focused else LIST_SEL_UNFOCUSED_BG), LIST_SEL_TEXT
+	if not hot and focused and _focusCuesVisible(hwnd) and item == _SendMessageW(hwnd, LVM_GETNEXTITEM, _NEG1, LVNI_FOCUSED):
+		fill = _deflate(fill, _insetForRing(rowBg))  # the row keeps its ring (drawn after the paint)
+	brush = _CreateSolidBrush(colorref(rowBg))
 	_FillRect(hdc, ctypes.byref(fill), brush)
 	_DeleteObject(brush)
 	if ex & LVS_EX_CHECKBOXES:
@@ -857,7 +888,7 @@ def _drawListViewRow(hwnd, hdc, item):
 	font = _SendMessageW(hwnd, WM_GETFONT, 0, 0)
 	oldFont = _SelectObject(hdc, font) if font else None
 	_SetBkMode(hdc, TRANSPARENT)
-	_SetTextColor(hdc, colorref(LIST_SEL_TEXT))
+	_SetTextColor(hdc, colorref(rowText))
 	header = _SendMessageW(hwnd, LVM_GETHEADER, 0, 0)
 	columns = _SendMessageW(header, HDM_GETITEMCOUNT, 0, 0) if header else 1
 	for col in range(max(1, columns)):
@@ -939,7 +970,12 @@ def _overdrawListBox(hwnd):
 				break
 			selected = (_SendMessageW(hwnd, LB_GETSEL, i, 0) > 0) if multi else (i == cur)
 			if selected:
-				_FillRect(hdc, ctypes.byref(rc), brush)
+				inset = _insetForRing(LIST_SEL_BG) if i == caret else 0
+				if inset:
+					gap = _CreateSolidBrush(colorref(LIST_BG))
+					_FillRect(hdc, ctypes.byref(rc), gap)
+					_DeleteObject(gap)
+				_FillRect(hdc, ctypes.byref(_deflate(rc, inset)), brush)
 				text = _listBoxText(hwnd, i)
 				if text:
 					# Where the list box itself puts the text: two pixels in from the left, top-aligned.
@@ -1343,8 +1379,13 @@ def _paintCheckItem(dis):
 	else:
 		bg = colorref(LIST_BG)
 		fg = colorref(LIST_DISABLED_TEXT if disabled else LIST_TEXT)
+	inset = _insetForRing(LIST_SEL_BG) if (selected and hasFocus and dis.itemState & ODS_FOCUS) else 0
+	if inset:
+		gap = _CreateSolidBrush(colorref(LIST_BG))
+		_FillRect(hdc, ctypes.byref(rc), gap)
+		_DeleteObject(gap)
 	brush = _CreateSolidBrush(bg)
-	_FillRect(hdc, ctypes.byref(rc), brush)
+	_FillRect(hdc, ctypes.byref(_deflate(rc, inset)), brush)
 	_DeleteObject(brush)
 
 	# Check box glyph from the (dark) Button theme of the list box itself.
@@ -1632,6 +1673,44 @@ def _drawRadioGlyph(hdc, box, checked, hot=False, pushed=False, disabled=False):
 
 BS_CHECK_TYPES = (0x2, 0x3, 0x5, 0x6)  # BS_CHECKBOX, BS_AUTOCHECKBOX, BS_3STATE, BS_AUTO3STATE
 BS_PUSHLIKE = 0x1000
+
+
+def _overdrawComboBorder(hwnd):
+	"""After a combo box (dropdown) painted: its rounded border again in our colours. The CFD
+	theme draws it in Windows' accent while the list is open. The theme's line and its
+	anti-aliasing are covered with the field colour first, then our line goes on top."""
+	rc = RECT()
+	_GetClientRect(hwnd, ctypes.byref(rc))
+	w, h = rc.right, rc.bottom
+	if w < 8 or h < 8:
+		return
+	if not _IsWindowEnabled(hwnd):
+		colour = BTN_DISABLED_BORDER
+	elif _SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0):
+		colour = FOCUS
+	elif HALO <= 0 and _hasFocus(hwnd) and _focusCuesVisible(hwnd):
+		colour = FOCUS
+	else:
+		pt = wintypes.POINT()
+		_user32.GetCursorPos(ctypes.byref(pt))
+		colour = BTN_HOT_BORDER if _user32.WindowFromPoint(pt) == hwnd else BORDER
+	dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
+	radius = max(2, round(4 * dpi / 96))
+	hdc = _GetDCEx(hwnd, None, DCX_CACHE | DCX_CLIPCHILDREN)  # an editable combo's edit box stays untouched
+	if not hdc:
+		return
+	try:
+		hollow = _gdi32.GetStockObject(5)  # NULL_BRUSH
+		oldBrush = _SelectObject(hdc, hollow)
+		for width, rgb in ((3, FIELD_BG), (1, colour)):
+			pen = _CreatePen(PS_SOLID, width, colorref(rgb))
+			oldPen = _SelectObject(hdc, pen)
+			_RoundRect(hdc, 0, 0, w, h, radius, radius)
+			_SelectObject(hdc, oldPen)
+			_DeleteObject(pen)
+		_SelectObject(hdc, oldBrush)
+	finally:
+		_ReleaseDC(hwnd, hdc)
 
 
 def _paintCheckBoxGlyph(hwnd):
@@ -2016,7 +2095,8 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 					if cd.nmcd.dwDrawStage == CDDS_ITEMPREPAINT:
 						# uItemState says "selected" for every row under the Explorer theme; ask the list.
 						sel = _SendMessageW(hdr.hwndFrom, LVM_GETITEMSTATE, cd.nmcd.dwItemSpec, LVIS_SELECTED) & LVIS_SELECTED
-						if sel and _drawListViewRow(hdr.hwndFrom, cd.nmcd.hdc, cd.nmcd.dwItemSpec):
+						hot = not sel and _SendMessageW(hdr.hwndFrom, LVM_GETHOTITEM, 0, 0) == cd.nmcd.dwItemSpec
+						if (sel or hot) and _drawListViewRow(hdr.hwndFrom, cd.nmcd.hdc, cd.nmcd.dwItemSpec, hot=hot):
 							return CDRF_SKIPDEFAULT
 					return _DefSubclassProc(hwnd, msg, wParam, lParam)
 				if hdr.code == NM_CUSTOMDRAW and hdr.hwndFrom in _sliders:
@@ -2131,8 +2211,11 @@ def _proc(hwnd, msg, wParam, lParam, idSubclass, refData):
 		elif idSubclass == ID_FOCUS:
 			if msg == WM_PAINT:
 				res = _DefSubclassProc(hwnd, msg, wParam, lParam)
-				if _className(hwnd) == "SysListView32":
+				cls = _className(hwnd)
+				if cls == "SysListView32":
 					_overdrawListViewChecks(hwnd)
+				elif cls == "ComboBox":
+					_overdrawComboBorder(hwnd)
 				_paintFocusOverlay(hwnd)
 				return res
 			if msg in (WM_SETFOCUS, WM_KILLFOCUS):
