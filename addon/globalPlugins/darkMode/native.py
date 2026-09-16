@@ -444,6 +444,12 @@ _ExcludeClipRect.argtypes = (HANDLE, ctypes.c_int, ctypes.c_int, ctypes.c_int, c
 _GetDC = _user32.GetDC
 _GetDC.argtypes = (wintypes.HWND,)
 _GetDC.restype = HANDLE
+for _name in ("CreateRoundRectRgn", "CreateRectRgn"):
+	getattr(_gdi32, _name).restype = HANDLE
+_gdi32.CombineRgn.argtypes = (HANDLE, HANDLE, HANDLE, ctypes.c_int)
+_gdi32.FillRgn.argtypes = (HANDLE, HANDLE, HANDLE)
+_gdi32.GetPixel.argtypes = (HANDLE, ctypes.c_int, ctypes.c_int)
+_gdi32.GetPixel.restype = wintypes.COLORREF
 _GetDCEx = _user32.GetDCEx
 _GetDCEx.argtypes = (wintypes.HWND, HANDLE, wintypes.DWORD)
 _GetDCEx.restype = HANDLE
@@ -457,6 +463,8 @@ WM_DARK_RELAYOUT = 0x8000 + 0x38  # WM_APP + 0x38: "the dialog has been laid out
 WM_DARK_HALO = 0x8000 + 0x39  # WM_APP + 0x39: "focus moved; put the outside ring where it now belongs"
 DCX_CACHE = 0x2
 DCX_CLIPCHILDREN = 0x8
+RGN_OR = 2
+RGN_DIFF = 4
 WM_QUERYUISTATE = 0x0129
 BM_GETSTATE = 0x00F2
 BM_GETIMAGE = 0x00F6
@@ -1738,19 +1746,42 @@ def _overdrawComboBorder(hwnd):
 		_user32.GetCursorPos(ctypes.byref(pt))
 		colour = BTN_HOT_BORDER if _user32.WindowFromPoint(pt) == hwnd else BORDER
 	dpi = _GetDpiForWindow(hwnd) if _GetDpiForWindow else 96
-	radius = max(2, round(4 * dpi / 96))
+	d = max(2, round(4 * dpi / 96))  # the corner ellipse, the same as the buttons'
 	hdc = _GetDCEx(hwnd, None, DCX_CACHE | DCX_CLIPCHILDREN)  # an editable combo's edit box stays untouched
 	if not hdc:
 		return
 	try:
+		# The band just inside the border is the combo's own face (the theme's, sampled: it
+		# changes under the mouse); then the corner squares are cleared to the dialog colour
+		# outside our rounded shape (the theme's corners are not ours, and this band's outer
+		# pixel reaches past the arc); then our line.
+		face = _gdi32.GetPixel(hdc, min(w - 1, d + 2), h // 2)
+		if face == 0xFFFFFFFF:  # CLR_INVALID
+			face = colorref(FIELD_BG)
 		hollow = _gdi32.GetStockObject(5)  # NULL_BRUSH
 		oldBrush = _SelectObject(hdc, hollow)
-		for width, rgb in ((3, FIELD_BG), (1, colour)):
-			pen = _CreatePen(PS_SOLID, width, colorref(rgb))
+
+		def outline(width, ref):
+			pen = _CreatePen(PS_SOLID, width, ref)
 			oldPen = _SelectObject(hdc, pen)
-			_RoundRect(hdc, 0, 0, w, h, radius, radius)
+			_RoundRect(hdc, 0, 0, w, h, d, d)
 			_SelectObject(hdc, oldPen)
 			_DeleteObject(pen)
+
+		outline(3, face)
+		shape = _gdi32.CreateRoundRectRgn(0, 0, w, h, d, d)
+		corners = _gdi32.CreateRectRgn(0, 0, d, d)
+		for l, t in ((w - d, 0), (0, h - d), (w - d, h - d)):
+			one = _gdi32.CreateRectRgn(l, t, l + d, t + d)
+			_gdi32.CombineRgn(corners, corners, one, RGN_OR)
+			_DeleteObject(one)
+		_gdi32.CombineRgn(corners, corners, shape, RGN_DIFF)
+		bg = _CreateSolidBrush(colorref(PARENT_BG))
+		_gdi32.FillRgn(hdc, corners, bg)
+		_DeleteObject(bg)
+		_DeleteObject(corners)
+		_DeleteObject(shape)
+		outline(1, colorref(colour))
 		_SelectObject(hdc, oldBrush)
 	finally:
 		_ReleaseDC(hwnd, hdc)
