@@ -76,7 +76,9 @@ def _accent(key, label, focus, selection, hot=None, pressed=None, hoverBase=None
 	return Accent(key, label, focus, selection, hot or _shade(focus, 0.22), pressed or _shade(focus, 0.38), hoverBase, windowsGlyphs)
 
 
-# The default first, the neutrals, then the colours in rainbow order.
+# The default first, the neutrals, then the colours in rainbow order. The colours are
+# the 2026-09-16 picks pulled 40% of the way back toward the dark grey (her call,
+# 2026-09-17: dimmer), so they sit at the grey's brightness with a quieter tint.
 BACKGROUNDS = (
 	# Translators: a background choice in the Dark Mode settings (Windows' usual dark grey, the default).
 	_background("grey", _("Dark grey (default)"), (0x20, 0x20, 0x20), (0x2B, 0x2B, 0x2B)),
@@ -85,19 +87,19 @@ BACKGROUNDS = (
 	# Translators: a background choice in the Dark Mode settings (a grey a little lighter than the default).
 	_background("lightgrey", _("Lighter grey"), (0x36, 0x36, 0x36)),
 	# Translators: a background choice in the Dark Mode settings (a very dark red).
-	_background("red", _("Red"), (0x33, 0x14, 0x14)),
+	_background("red", _("Red"), (0x2B, 0x19, 0x19)),
 	# Translators: a background choice in the Dark Mode settings (a very dark orange).
-	_background("orange", _("Orange"), (0x33, 0x20, 0x0F)),
+	_background("orange", _("Orange"), (0x2B, 0x20, 0x16)),
 	# Translators: a background choice in the Dark Mode settings (a very dark green).
-	_background("green", _("Green"), (0x14, 0x33, 0x1C)),
+	_background("green", _("Green"), (0x19, 0x2B, 0x1E)),
 	# Translators: a background choice in the Dark Mode settings (a very dark teal).
-	_background("teal", _("Teal"), (0x14, 0x33, 0x33)),
+	_background("teal", _("Teal"), (0x19, 0x2B, 0x2B)),
 	# Translators: a background choice in the Dark Mode settings (a very dark blue).
-	_background("blue", _("Blue"), (0x14, 0x21, 0x3A)),
+	_background("blue", _("Blue"), (0x19, 0x21, 0x30)),
 	# Translators: a background choice in the Dark Mode settings (a very dark purple).
-	_background("purple", _("Purple"), (0x26, 0x16, 0x38)),
+	_background("purple", _("Purple"), (0x24, 0x1A, 0x2E)),
 	# Translators: a background choice in the Dark Mode settings (a very dark pink).
-	_background("pink", _("Pink"), (0x38, 0x14, 0x2A)),
+	_background("pink", _("Pink"), (0x2E, 0x19, 0x26)),
 )
 
 # The default first, then the colours in rainbow order.
