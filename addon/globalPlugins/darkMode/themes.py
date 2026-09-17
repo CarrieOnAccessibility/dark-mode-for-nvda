@@ -76,7 +76,7 @@ def _accent(key, label, focus, selection, hot=None, pressed=None, hoverBase=None
 	return Accent(key, label, focus, selection, hot or _shade(focus, 0.22), pressed or _shade(focus, 0.38), hoverBase, windowsGlyphs)
 
 
-# Black and greys only (her call, 2026-09-16: the very dark colours were tried and dropped).
+# The default first, the neutrals, then the colours in rainbow order.
 BACKGROUNDS = (
 	# Translators: a background choice in the Dark Mode settings (Windows' usual dark grey, the default).
 	_background("grey", _("Dark grey (default)"), (0x20, 0x20, 0x20), (0x2B, 0x2B, 0x2B)),
@@ -84,6 +84,20 @@ BACKGROUNDS = (
 	_background("black", _("Black"), BLACK, BLACK, textAreasFollow=True),
 	# Translators: a background choice in the Dark Mode settings (a grey a little lighter than the default).
 	_background("lightgrey", _("Lighter grey"), (0x36, 0x36, 0x36)),
+	# Translators: a background choice in the Dark Mode settings (a very dark red).
+	_background("red", _("Red"), (0x33, 0x14, 0x14)),
+	# Translators: a background choice in the Dark Mode settings (a very dark orange).
+	_background("orange", _("Orange"), (0x33, 0x20, 0x0F)),
+	# Translators: a background choice in the Dark Mode settings (a very dark green).
+	_background("green", _("Green"), (0x14, 0x33, 0x1C)),
+	# Translators: a background choice in the Dark Mode settings (a very dark teal).
+	_background("teal", _("Teal"), (0x14, 0x33, 0x33)),
+	# Translators: a background choice in the Dark Mode settings (a very dark blue).
+	_background("blue", _("Blue"), (0x14, 0x21, 0x3A)),
+	# Translators: a background choice in the Dark Mode settings (a very dark purple).
+	_background("purple", _("Purple"), (0x26, 0x16, 0x38)),
+	# Translators: a background choice in the Dark Mode settings (a very dark pink).
+	_background("pink", _("Pink"), (0x38, 0x14, 0x2A)),
 )
 
 # The default first, then the colours in rainbow order.
