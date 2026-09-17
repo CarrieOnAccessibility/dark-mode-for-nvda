@@ -1,6 +1,6 @@
 DARK MODE FOR NVDA - WHAT'S LEFT FOR THE ADD-ON STORE
 ======================================================
-(Updated 15 September 2026. Version 0.9.3 beta is live on apps.carrieonaccessibility.com and
+(Updated 17 September 2026. Version 0.9.4 beta is live on apps.carrieonaccessibility.com and
 on GitHub. Store submission is on hold until your members have tried it. This file lives on
 your Desktop; the same steps are in the repo as STORE-SUBMISSION.txt.)
 
@@ -37,11 +37,11 @@ Claude then: tags that exact version on GitHub, rebuilds the file, checks it aga
 site, and fills in the exact links and fingerprint below. From that moment that file
 never changes; anything later is a new version number.
 
-   Current candidate, in case nothing changes: 0.9.3
-   File:        D:\00 Carrie on Accessibility\Coding\dark-mode-for-nvda\dist\darkMode-0.9.3.nvda-addon
-   Size:        43,908 bytes
-   SHA-256:     cdc7e700a37e5cc0c731c3cd756a11e5e566ba6883e1cbb0b46055ac505ba315
-   Same file:   https://apps.carrieonaccessibility.com/apps/dark-mode/darkMode-0.9.3.nvda-addon
+   Current candidate, in case nothing changes: 0.9.4
+   File:        D:\00 Carrie on Accessibility\Coding\dark-mode-for-nvda\dist\darkMode-0.9.4.nvda-addon
+   Size:        57,912 bytes
+   SHA-256:     5c7b8851a7176541c9062f898ce9cd15f88b972de7735d00c5fd12df84d5c1fd
+   Same file:   https://apps.carrieonaccessibility.com/apps/dark-mode/darkMode-0.9.4.nvda-addon
    (If a fix ships first, these four lines change - ask Claude for the fresh ones.)
 
 
