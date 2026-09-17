@@ -67,6 +67,10 @@ This gives the store a permanent download address next to the source code.
    Shortcut: if you would rather skip this step, the website address from step 2 works
    for the form too - it is the same file. GitHub is just the tidier home for it.
 
+   ALREADY DONE FOR 0.9.4 (17 September 2026): Claude published the release, so if 0.9.4 is
+   the version you freeze, skip this step. Its download address is
+   https://github.com/CarrieOnAccessibility/dark-mode-for-nvda/releases/download/v0.9.4/darkMode-0.9.4.nvda-addon
+
 
 STEP 4 - FILL IN THE STORE FORM  (you, about five minutes, in the browser)
 -------------------------------------------------------------------------
